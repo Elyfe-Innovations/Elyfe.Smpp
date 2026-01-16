@@ -88,7 +88,7 @@ namespace JamaaTech.Smpp.Net.Lib.Tests
         }
 
         [Fact]
-        public void ConcurrentAccess_ThreadSafe()
+        public async Task ConcurrentAccess_ThreadSafe()
         {
             var tcs = new TaskCompletionSource<ResponsePDU>();
             var context = new PDUWaitContextAsync(123, 1000, tcs, CancellationToken.None);
@@ -112,7 +112,7 @@ namespace JamaaTech.Smpp.Net.Lib.Tests
                 });
             }
 
-            Task.WaitAll(tasks);
+             await Task.WhenAll(tasks);
 
             // Should not have any exceptions
             Assert.Empty(exceptions);
