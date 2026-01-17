@@ -20,6 +20,12 @@
       <IncludeAssets Condition="'$(Configuration)' == 'Release' ">Smpp.Net.Lib.dll</IncludeAssets>
     </ProjectReference>
   </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Update="MinVer" Version="7.0.0" />
+    <PackageReference Update="Microsoft.Extensions.Logging" Version="10.0.2" />
+    <PackageReference Update="Microsoft.Extensions.Logging.Console" Version="10.0.2" />
+  </ItemGroup>
   <Target DependsOnTargets="ResolveReferences" Name="CopyProjectReferencesToPackage">
     <Message Text="@(ReferenceCopyLocalPaths)" />
     <ItemGroup>
