@@ -11,7 +11,7 @@ namespace JamaaTech.Smpp.Net.Lib.Tests
     public class PDUWaitContextAsyncTests
     {
         [Fact]
-        public void AlertResponseReceived_CompletesTask()
+        public async Task AlertResponseReceived_CompletesTask()
         {
             var tcs = new TaskCompletionSource<ResponsePDU>();
             var context = new PDUWaitContextAsync(123, 1000, tcs, CancellationToken.None);
@@ -22,12 +22,12 @@ namespace JamaaTech.Smpp.Net.Lib.Tests
 
             // Task should be completed with the response
             Assert.True(tcs.Task.IsCompleted);
-            Assert.Same(response, tcs.Task.Result);
+            Assert.Same(response, await tcs.Task);
             Assert.True(context.Completed);
         }
 
         [Fact]
-        public void AlertResponseReceived_MultipleCalls_OnlyFirstSucceeds()
+        public async Task AlertResponseReceived_MultipleCalls_OnlyFirstSucceeds()
         {
             var tcs = new TaskCompletionSource<ResponsePDU>();
             var context = new PDUWaitContextAsync(123, 1000, tcs, CancellationToken.None);
@@ -37,36 +37,35 @@ namespace JamaaTech.Smpp.Net.Lib.Tests
             // First alert should succeed
             context.AlertResponseReceived(response1);
             Assert.True(context.Completed);
-            Assert.Same(response1, tcs.Task.Result);
+            Assert.Same(response1, await tcs.Task);
 
             // Second alert should be ignored
             context.AlertResponseReceived(response2);
-            Assert.Same(response1, tcs.Task.Result); // Should still be first response
+            Assert.Same(response1, await tcs.Task); // Should still be first response
         }
 
         [Fact]
-        public void Timeout_ThrowsException()
+        public async Task Timeout_ThrowsException()
         {
             var tcs = new TaskCompletionSource<ResponsePDU>();
             var context = new PDUWaitContextAsync(123, 50, tcs, CancellationToken.None);
 
             // Wait for timeout
-            var exception = Assert.ThrowsAsync<SmppResponseTimedOutException>(() => tcs.Task);
-            exception.Wait();
+            var exception = await Assert.ThrowsAsync<SmppResponseTimedOutException>(() => tcs.Task);
 
             Assert.True(context.Completed);
             Assert.True(context.TimedOut);
         }
 
         [Fact]
-        public void Cancellation_CancelsTask()
+        public async Task Cancellation_CancelsTask()
         {
             var cts = new CancellationTokenSource();
             var tcs = new TaskCompletionSource<ResponsePDU>();
             var context = new PDUWaitContextAsync(123, 1000, tcs, cts.Token);
 
             // Cancel the operation
-            cts.Cancel();
+            await cts.CancelAsync();
 
             // Task should be cancelled
             Assert.True(tcs.Task.IsCanceled);
@@ -112,18 +111,18 @@ namespace JamaaTech.Smpp.Net.Lib.Tests
                 });
             }
 
-             await Task.WhenAll(tasks);
+            await Task.WhenAll(tasks);
 
             // Should not have any exceptions
             Assert.Empty(exceptions);
             
             // Task should be completed
             Assert.True(tcs.Task.IsCompleted);
-            Assert.Same(response, tcs.Task.Result);
+            Assert.Same(response, await tcs.Task);
         }
 
         [Fact]
-        public void TimeoutAndResponse_ResponseWins()
+        public async Task TimeoutAndResponse_ResponseWins()
         {
             var tcs = new TaskCompletionSource<ResponsePDU>();
             var context = new PDUWaitContextAsync(123, 100, tcs, CancellationToken.None);
@@ -134,13 +133,13 @@ namespace JamaaTech.Smpp.Net.Lib.Tests
             context.AlertResponseReceived(response);
 
             // Should get the response, not timeout
-            Assert.Same(response, tcs.Task.Result);
+            Assert.Same(response,await tcs.Task);
             Assert.True(context.Completed);
             Assert.False(context.TimedOut);
         }
 
         [Fact]
-        public void CancellationAndResponse_ResponseWins()
+        public async Task CancellationAndResponse_ResponseWins()
         {
             var cts = new CancellationTokenSource();
             var tcs = new TaskCompletionSource<ResponsePDU>();
@@ -151,10 +150,10 @@ namespace JamaaTech.Smpp.Net.Lib.Tests
             context.AlertResponseReceived(response);
 
             // Cancel (should be ignored since already completed)
-            cts.Cancel();
+            await cts.CancelAsync();
 
             // Should get the response, not cancellation
-            Assert.Same(response, tcs.Task.Result);
+            Assert.Same(response, await tcs.Task);
             Assert.True(context.Completed);
         }
 
