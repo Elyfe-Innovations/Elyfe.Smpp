@@ -171,6 +171,10 @@ FakesAssemblies/
 GeneratedArtifacts/
 _Pvt_Extensions/
 ModelManifest.xml
+
+# Language Server Cache
+*.lscache
+
 /tools
 /output
 /.nuget
