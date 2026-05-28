@@ -48,10 +48,19 @@ namespace JamaaTech.Smpp.Net.Lib.Util
         #region Interface Methods
         public void Start()
         {
-            lock (vSyncRoot) { if (vRunning) { return; } } //If this component is already running, do nothing
-            //Initialize component before running owner thread
-            InitializeComponent();
-            RunThread();
+            lock (vSyncRoot)
+            {
+                if (vRunning) { return; } //If this component is already running, do nothing
+
+                // Mark as running before the thread starts so concurrent callers cannot
+                // create and start multiple Thread instances against the same component.
+                vRunning = true;
+                vStopOnNextCycle = false;
+
+                //Initialize component before running owner thread
+                InitializeComponent();
+                RunThread();
+            }
         }
 
         public void Stop()
@@ -88,7 +97,6 @@ namespace JamaaTech.Smpp.Net.Lib.Util
 
         protected virtual void ThreadCallback()
         {
-            lock (vSyncRoot) { vRunning = true; vStopOnNextCycle = false; }
             try
             {
                 RunNow();
