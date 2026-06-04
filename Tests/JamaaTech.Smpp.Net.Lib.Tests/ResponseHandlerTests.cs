@@ -91,7 +91,7 @@ namespace JamaaTech.Smpp.Net.Lib.Tests
             var resp = new TestResponsePDU(seq);
 
             var sw = Stopwatch.StartNew();
-            var waitTask = Task.Run(() => handler.WaitResponse(req));
+            var waitTask = Task.Run(() => handler.WaitResponse(req, 500));
 
             Task.Delay(25).Wait();
             handler.Handle(resp);
