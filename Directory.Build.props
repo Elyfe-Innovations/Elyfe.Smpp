@@ -1,0 +1,78 @@
+<Project>
+
+  <PropertyGroup>
+    <!-- Language / build -->
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NeutralLanguage>en</NeutralLanguage>
+    <!-- CS1591: missing XML doc comment. NU1507: multiple package sources with CPM. -->
+    <NoWarn>$(NoWarn);CS1591;NU1507</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Strong naming. Required: Smpp.Net.Lib grants InternalsVisibleTo by public key. -->
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>$(MSBuildThisFileDirectory)Jamaa Smpp Client.snk</AssemblyOriginatorKeyFile>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- SourceLink is built into the SDK; this replaces SourceLink.Create.CommandLine. -->
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <DebugType>portable</DebugType>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Package metadata -->
+    <Authors>Alfred Neequaye,AdhamAwadhi,JamaaTech</Authors>
+    <Owners>Alfred Neequaye,AdhamAwadhi,JamaaTech</Owners>
+    <Company>Elyfe Innovations</Company>
+    <Copyright>Elyfe Innovations</Copyright>
+    <Title>Elyfe SMPP Client</Title>
+    <Summary>SMPP interface Library</Summary>
+    <Description>Elyfe SMPP Client is a .NET implementation of the SMPP protocol that focuses on providing an easy-to-use and robust SMPP client library for .NET developers. This project is intended to be used by developers who want to integrate SMS functionalities in their applications as well as students who are learning the SMPP protocol. Based on JamaaSMPP.</Description>
+    <PackageTags>.net smpp</PackageTags>
+    <PackageProjectUrl>https://github.com/alfkonee/JamaaSMPP</PackageProjectUrl>
+    <RepositoryUrl>$(PackageProjectUrl)</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicense>MIT</PackageLicense>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+    <PackageReleaseNotes>
+      v2026.1.0
+
+      - BREAKING: dropped net48 and netstandard2.0; now targets netstandard2.1 and net10.0
+      - BREAKING: removed the bundled Common.Logging shim; logging is Microsoft.Extensions.Logging only
+      - BREAKING: removed the APM BeginSendPdu/EndSendPdu and BeginSendMessage/EndSendMessage pairs
+      - changed: the library depends on Microsoft.Extensions.Logging.Abstractions only
+      - fix: TcpIpSession send/receive now honour the CancellationToken they accept
+      - improve: package versions managed centrally; SourceLink now comes from the SDK
+    </PackageReleaseNotes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MinVer">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="PolySharp">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+</Project>

@@ -4,6 +4,7 @@ using System;
 using System.Threading;
 using JamaaTech.Smpp.Net.Lib;
 using JamaaTech.Smpp.Net.Lib.Protocol;
+using Microsoft.Extensions.Logging;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -11,7 +12,10 @@ namespace DemoClient
 {
     class Program
     {
-        private static readonly global::Common.Logging.ILog _Log = global::Common.Logging.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
+        private static readonly ILoggerFactory LoggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(builder =>
+            builder.AddSimpleConsole(o => o.SingleLine = true).SetMinimumLevel(LogLevel.Debug));
+
+        private static readonly ILogger Logger = LoggerFactory.CreateLogger<Program>();
 
         static ISmppConfiguration smppConfig;
         private static SmppClient client;
@@ -25,9 +29,11 @@ namespace DemoClient
                              .ToArray();
         }
 
-        static void Main(string[] args)
+        static async Task Main(string[] args)
         {
-            Common.Logging.LogManager.Adapter = new Common.Logging.Simple.DebugLoggerFactoryAdapter();
+            // Route the library's own diagnostics to the same console sink.
+            Common.Logging.LogManager.SetLoggerFactory(LoggerFactory);
+
             var encSrv = new SmppEncodingService();
 
             var hexBytes = "000000dd0000000500000000019182410001013334363439323836383039000501657669636572746961000400000000000000008569643a323533303932393134353232363637333732207375623a30303120646c7672643a303031207375626d697420646174653a3133303932393136353220646f6e6520646174653a3133303932393136353220737461743a44454c49565244206572723a3030303020746578743a1b3c657669534d531b3e0a534d532064652050727565042300030300000427000102001e001332353330393239313435323236363733373200";
@@ -41,7 +47,7 @@ namespace DemoClient
 
             //Assert.AreEqual("253092914522667372", pdu.ReceiptedMessageId);
 
-            _Log.Info("Start");
+            Logger.LogInformation("Start");
             //Trace.Listeners.Add(new ConsoleTraceListener());
 
             smppConfig = GetSmppConfiguration();
@@ -83,7 +89,7 @@ namespace DemoClient
                         break;
 
                     default:
-                        ProcessCommand(command);
+                        await ProcessCommand(command);
                         break;
                 }
 
@@ -96,14 +102,14 @@ namespace DemoClient
                 client.Dispose();
         }
 
-        private static void ProcessCommand(string command)
+        private static async Task ProcessCommand(string command)
         {
             string[] parts = command.Split(' ');
 
             switch (parts[0])
             {
                 case "send":
-                    SendMessage(command);
+                    await SendMessage(command);
                     break;
             }
         }
@@ -135,7 +141,7 @@ namespace DemoClient
             msg.Text = msgTxt;
             msg.RegisterDeliveryNotification = true; //I want delivery notification for this message
             msg.UserMessageReference = GenerateUserMessageReference(smppConfig.UserMessageReferenceType);
-            _Log.DebugFormat($"msg.UserMessageReference: {msg.UserMessageReference}");
+            Logger.LogDebug("msg.UserMessageReference: {UserMessageReference}", msg.UserMessageReference);
 
             try
             {
@@ -144,12 +150,11 @@ namespace DemoClient
             }
             catch (SmppException smppEx)
             {
-                _Log.ErrorFormat("smppEx.ErrorCode:({0}) {1} ", (int)smppEx.ErrorCode, smppEx.ErrorCode);
-                _Log.Error(smppEx);
+                Logger.LogError(smppEx, "SendMessage failed with SMPP error {ErrorCodeValue} ({ErrorCode})", (int)smppEx.ErrorCode, smppEx.ErrorCode);
             }
             catch (Exception e)
             {
-                _Log.Error("SendMessage:" + e.Message, e);
+                Logger.LogError(e, "SendMessage failed");
             }
         }
 
@@ -222,7 +227,7 @@ namespace DemoClient
             client.MessageReceived += new EventHandler<MessageEventArgs>(client_MessageReceived);
 
             SmppConnectionProperties properties = client.Properties;
-            properties.SystemID = config.SystemID;// "mysystemid";
+            properties.SystemId = config.SystemID;// "mysystemid";
             properties.Password = config.Password;// "mypassword";
             properties.Port = config.Port;// 2034; //IP port to use
             properties.Host = config.Host;// "196.23.3.12"; //SMSC host name or IP Address

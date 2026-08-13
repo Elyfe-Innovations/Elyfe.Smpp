@@ -1,7 +1,15 @@
 <Solution>
-  <Folder Name="/JamaaTech.SMPP.Net.Lib/">
-    <Project Path="JamaaTech.SMPP.Net.Lib/Smpp.Net.Lib.csproj" />
+  <Folder Name="/src/">
+    <Project Path="JamaaTech.Smpp.Net.Lib/Smpp.Net.Lib.csproj" />
+    <Project Path="JamaaTech.Smpp.Net.Client/Smpp.Net.Client.csproj" />
+    <Project Path="Client/Client.csproj" />
   </Folder>
-  <Project Path="Client.Tests/Client.Tests.csproj" />
-  <Project Path="Client/Client.csproj" />
+  <Folder Name="/tests/">
+    <Project Path="Tests/JamaaTech.Smpp.Net.Lib.Tests/JamaaTech.Smpp.Net.Lib.Tests.csproj" />
+    <Project Path="Client.Tests/Client.Tests.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="DemoClient/DemoClient.csproj" />
+    <Project Path="Benchmarks/Benchmarks.csproj" />
+  </Folder>
 </Solution>

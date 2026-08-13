@@ -1,13 +1,14 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
-
-  <Import Project="..\common.props" />
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net48;netstandard2.0;net8.0;net10.0</TargetFrameworks>
+    <TargetFrameworks>netstandard2.1;net10.0</TargetFrameworks>
     <AssemblyName>JamaaTech.Smpp.Net.Client</AssemblyName>
     <PackageId>Elyfe.Smpp</PackageId>
-    <TargetsForTfmSpecificBuildOutput>$(TargetsForTfmSpecificBuildOutput);CopyProjectReferencesToPackage</TargetsForTfmSpecificBuildOutput>
     <RootNamespace>JamaaTech.Smpp.Net.Client</RootNamespace>
+    <!-- TODO: enable once the nullable-annotation pass lands. -->
+    <Nullable>disable</Nullable>
+    <!-- Smpp.Net.Lib ships inside this package rather than as a dependency. -->
+    <TargetsForTfmSpecificBuildOutput>$(TargetsForTfmSpecificBuildOutput);CopyProjectReferencesToPackage</TargetsForTfmSpecificBuildOutput>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release' ">
@@ -22,14 +23,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Update="MinVer" Version="7.0.0" />
-    <PackageReference Update="Microsoft.Extensions.Logging" Version="10.0.8" />
-    <PackageReference Update="Microsoft.Extensions.Logging.Console" Version="10.0.8" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
+
   <Target DependsOnTargets="ResolveReferences" Name="CopyProjectReferencesToPackage">
-    <Message Text="@(ReferenceCopyLocalPaths)" />
     <ItemGroup>
       <BuildOutputInPackage Include="@(ReferenceCopyLocalPaths-&gt;WithMetadataValue('ReferenceSourceTarget', 'ProjectReference'))" />
     </ItemGroup>
   </Target>
+
 </Project>

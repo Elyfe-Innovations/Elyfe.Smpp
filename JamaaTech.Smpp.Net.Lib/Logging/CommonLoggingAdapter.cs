@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using System;
 
 namespace Common.Logging;
@@ -52,10 +53,7 @@ public interface ILog
 /// </summary>
 public static class LogManager
 {
-    private static ILoggerFactory _loggerFactory = LoggerFactory.Create(builder =>
-    {
-        builder.SetMinimumLevel(LogLevel.Trace);
-    });
+    private static ILoggerFactory _loggerFactory = NullLoggerFactory.Instance;
 
     public static void SetLoggerFactory(ILoggerFactory loggerFactory)
     {
