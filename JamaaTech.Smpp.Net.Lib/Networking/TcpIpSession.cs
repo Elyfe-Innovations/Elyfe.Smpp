@@ -17,6 +17,8 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Tasks;
+using JamaaTech.Smpp.Net.Lib.Logging;
+using Microsoft.Extensions.Logging;
 
 namespace JamaaTech.Smpp.Net.Lib.Networking
 {
@@ -25,6 +27,8 @@ namespace JamaaTech.Smpp.Net.Lib.Networking
     /// </summary>
     public class TcpIpSession
     {
+        private static readonly ILogger Logger = SmppLog.For(typeof(TcpIpSession));
+
         #region Variables
         /// <summary>
         /// The underlying socket used for sending and receiving data
@@ -212,7 +216,7 @@ namespace JamaaTech.Smpp.Net.Lib.Networking
             foreach (EventHandler<TcpIpSessionClosedEventArgs> del in delegates)
             {
                 if (del == null) continue;
-                Task.Factory.StartNew(() => 
+                Task.Run(() =>
                 {
                     try
                     {
@@ -221,10 +225,9 @@ namespace JamaaTech.Smpp.Net.Lib.Networking
                     catch (Exception eventEx)
                     {
                         // Log the exception but don't let it propagate to avoid crashing the application
-                        // Note: We can't use _Log here as it might not be available in this context
-                        System.Diagnostics.Debug.WriteLine($"Exception in TcpIpSession SessionClosed event handler: {eventEx.Message}");
+                        Logger.LogError(eventEx, "Exception in TcpIpSession SessionClosed event handler");
                     }
-                }, TaskCreationOptions.DenyChildAttach);
+                });
             }
         }
 
@@ -233,7 +236,7 @@ namespace JamaaTech.Smpp.Net.Lib.Networking
             if (SessionException == null) { return; }
             foreach (EventHandler<TcpIpSessionExceptionEventArgs> del in SessionException.GetInvocationList())
             {
-                Task.Factory.StartNew(() => 
+                Task.Run(() =>
                 {
                     try
                     {
@@ -242,9 +245,9 @@ namespace JamaaTech.Smpp.Net.Lib.Networking
                     catch (Exception eventEx)
                     {
                         // Log the exception but don't let it propagate to avoid crashing the application
-                        System.Diagnostics.Debug.WriteLine($"Exception in TcpIpSession SessionException event handler: {eventEx.Message}");
+                        Logger.LogError(eventEx, "Exception in TcpIpSession SessionException event handler");
                     }
-                }, TaskCreationOptions.DenyChildAttach);
+                });
             }
         }
 

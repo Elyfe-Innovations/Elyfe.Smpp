@@ -92,7 +92,7 @@ namespace JamaaTech.Smpp.Net.Lib
                     PDU pdu = WaitPDU();
                     if (pdu is RequestPDU)
                     {
-                        Task.Factory.StartNew(() => 
+                        Task.Run(() =>
                         {
                             try
                             {
@@ -102,7 +102,7 @@ namespace JamaaTech.Smpp.Net.Lib
                             {
                                 Logger.LogError(ex, "Exception in PDU processor callback");
                             }
-                        }, TaskCreationOptions.DenyChildAttach);
+                        });
                     }
                     else if (pdu is ResponsePDU) { vResponseHandler.Handle(pdu as ResponsePDU); }
                 }
@@ -240,7 +240,7 @@ namespace JamaaTech.Smpp.Net.Lib
             PDUErrorEventArgs e = new PDUErrorEventArgs(exception, byteDump, header, pdu);
             foreach (EventHandler<PDUErrorEventArgs> del in PDUError.GetInvocationList())
             {
-                Task.Factory.StartNew(() => 
+                Task.Run(() =>
                 {
                     try
                     {
@@ -250,7 +250,7 @@ namespace JamaaTech.Smpp.Net.Lib
                     {
                         Logger.LogError(ex, "Exception in PDUError event handler");
                     }
-                }, TaskCreationOptions.DenyChildAttach);
+                });
             }
         }
 
@@ -260,7 +260,7 @@ namespace JamaaTech.Smpp.Net.Lib
             ParserExceptionEventArgs e = new ParserExceptionEventArgs(exception);
             foreach (EventHandler<ParserExceptionEventArgs> del in ParserException.GetInvocationList())
             {
-                Task.Factory.StartNew(() => 
+                Task.Run(() =>
                 {
                     try
                     {
@@ -270,7 +270,7 @@ namespace JamaaTech.Smpp.Net.Lib
                     {
                         Logger.LogError(ex, "Exception in ParserException event handler");
                     }
-                }, TaskCreationOptions.DenyChildAttach);
+                });
             }
         }
 

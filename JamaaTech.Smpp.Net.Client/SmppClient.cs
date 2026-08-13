@@ -37,7 +37,7 @@ namespace JamaaTech.Smpp.Net.Client
         private SmppClientSession vRecv;
         private Exception vLastException;
         private SmppConnectionState vState;
-        private object vConnSyncRoot;
+        private SemaphoreSlim vConnSemaphore;
         private System.Threading.Timer vTimer;
         private int vTimeOut;
         private int vAutoReconnectDelay;
@@ -106,7 +106,7 @@ namespace JamaaTech.Smpp.Net.Client
                 : loggerFactory.CreateLogger<SmppClient>();
             vProperties = new SmppConnectionProperties();
             vSmppEncodingService = new SmppEncodingService();
-            vConnSyncRoot = new object();
+            vConnSemaphore = new SemaphoreSlim(1, 1);
             vAutoReconnectDelay = 10000;
             vTimeOut = 5000;
             //--
@@ -443,9 +443,14 @@ namespace JamaaTech.Smpp.Net.Client
         #region Helper Methods
         private void Open(int timeOut)
         {
-            try
+            // Wait(0) takes the slot only if no other thread is connecting; the loser
+            // then waits for the winner and reports the winner's outcome. A SemaphoreSlim
+            // rather than a Monitor: unlike a lock it is not reentrant, so a nested Open
+            // on the connecting thread waits instead of slipping through, and there is no
+            // release path that can run without a matching acquire.
+            if (vConnSemaphore.Wait(0))
             {
-                if (Monitor.TryEnter(vConnSyncRoot))
+                try
                 {
                     //No thread is in a connecting or reconnecting state
                     if (vState != SmppConnectionState.Closed)
@@ -470,19 +475,26 @@ namespace JamaaTech.Smpp.Net.Client
                     }
                     vLastException = null;
                 }
-                else
+                finally
                 {
-                    //Another thread is already in either a connecting or reconnecting state
-                    //Wait until the thread finishes
-                    Monitor.Enter(vConnSyncRoot);
+                    vConnSemaphore.Release();
+                }
+            }
+            else
+            {
+                //Another thread is already in either a connecting or reconnecting state
+                //Wait until the thread finishes
+                vConnSemaphore.Wait();
+                try
+                {
                     //Now, the thread has finished connecting,
                     //Check on the result if the thread encountered any problem during connection
                     if (vLastException != null) { throw vLastException; }
                 }
-            }
-            finally
-            {
-                Monitor.Exit(vConnSyncRoot);
+                finally
+                {
+                    vConnSemaphore.Release();
+                }
             }
         }
 
@@ -760,6 +772,7 @@ namespace JamaaTech.Smpp.Net.Client
             {
                 Shutdown();
                 if (vTimer != null) { vTimer.Dispose(); }
+                if (vConnSemaphore != null) { vConnSemaphore.Dispose(); }
             }
             catch { /*Sielent catch*/ }
         }

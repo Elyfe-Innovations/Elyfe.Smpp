@@ -4,6 +4,18 @@
 namespace JamaaTech.Smpp.Net.Lib
 {
     /// <summary>
+    /// Selects an <see cref="IResponseHandler"/> implementation.
+    /// </summary>
+    public enum ResponseHandlerImplementation
+    {
+        /// <summary>The default TaskCompletionSource-based handler.</summary>
+        Default = 0,
+
+        /// <summary>A handler tuned for many in-flight requests on one session.</summary>
+        Concurrent = 1
+    }
+
+    /// <summary>
     /// Options to configure a response handler implementation.
     /// </summary>
     public class ResponseHandlerOptions
@@ -14,8 +26,9 @@ namespace JamaaTech.Smpp.Net.Lib
         public int DefaultResponseTimeout { get; set; } = 5000;
 
         /// <summary>
-        /// Name of implementation to load: "v1" (legacy), "concurrent" or "v2" (default).
+        /// The implementation to create. Defaults to
+        /// <see cref="ResponseHandlerImplementation.Default"/>.
         /// </summary>
-        public string Implementation { get; set; } = "v2";
+        public ResponseHandlerImplementation Implementation { get; set; } = ResponseHandlerImplementation.Default;
     }
 }

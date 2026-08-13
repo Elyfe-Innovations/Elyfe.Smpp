@@ -12,7 +12,6 @@ namespace JamaaTech.Smpp.Net.Lib.Benchmarks;
 [ThreadingDiagnoser]
 public class ResponseHandlerBenchmarks
 {
-    private ResponseHandler _handlerV1 = null!;
     private ResponseHandlerV2 _handlerV2 = null!;
     private ConcurrentResponseHandler _handlerV3 = null!;
 
@@ -28,10 +27,8 @@ public class ResponseHandlerBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        ResponseHandler.SetMinimumTimeoutForTesting(1);
         ResponseHandlerV2.SetMinimumTimeoutForTesting(1);
         ConcurrentResponseHandler.SetMinimumTimeoutForTesting(1);
-        _handlerV1 = new ResponseHandler();
         _handlerV2 = new ResponseHandlerV2();
         _handlerV3 = new ConcurrentResponseHandler();
         _requests = new TestRequestPDU[Pending];
@@ -43,19 +40,6 @@ public class ResponseHandlerBenchmarks
         }
     }
 
-    [Benchmark]
-    public void V1_WaitAndHandleSequential()
-    {
-        for (int i = 0; i < Pending; i++)
-        {
-            var req = _requests[i];
-            var resp = _responses[i];
-            var waitThread = new Thread(() => _handlerV1.WaitResponse(req, 5));
-            waitThread.Start();
-            _handlerV1.Handle(resp);
-            waitThread.Join();
-        }
-    }
 
     [Benchmark]
     public void V2_WaitAndHandleSequential()
@@ -85,14 +69,6 @@ public class ResponseHandlerBenchmarks
         }
     }
 
-    [Benchmark]
-    public void V1_HandleOnly()
-    {
-        for (int i = 0; i < Pending; i++)
-        {
-            _handlerV1.Handle(_responses[i]);
-        }
-    }
 
     [Benchmark]
     public void V2_HandleOnly()
@@ -113,19 +89,6 @@ public class ResponseHandlerBenchmarks
     }
 
     // Parallel variants (sync wait/handle)
-    [Benchmark]
-    public void V1_WaitAndHandleParallel()
-    {
-        var options = new ParallelOptions { MaxDegreeOfParallelism = Parallelism };
-        Parallel.For(0, Pending, options, i =>
-        {
-            var req = _requests[i];
-            var resp = _responses[i];
-            var t = Task.Run(() => _handlerV1.WaitResponse(req, 5));
-            _handlerV1.Handle(resp);
-            t.GetAwaiter().GetResult();
-        });
-    }
 
     [Benchmark]
     public void V2_WaitAndHandleParallel()
@@ -185,15 +148,6 @@ public class ResponseHandlerBenchmarks
     }
 
     // Response-first (no blocking) scenarios
-    [Benchmark]
-    public void V1_ResponseBeforeWait()
-    {
-        for (int i = 0; i < Pending; i++)
-        {
-            _handlerV1.Handle(_responses[i]);
-            _ = _handlerV1.WaitResponse(_requests[i], 5);
-        }
-    }
 
     [Benchmark]
     public void V2_ResponseBeforeWait()
@@ -216,15 +170,6 @@ public class ResponseHandlerBenchmarks
     }
 
     // Timeout scenarios (catch and ignore expected timeouts)
-    [Benchmark]
-    public void V1_Timeouts()
-    {
-        for (int i = 0; i < Pending; i++)
-        {
-            try { _ = _handlerV1.WaitResponse(_requests[i], 1); }
-            catch (SmppResponseTimedOutException) { }
-        }
-    }
 
     [Benchmark]
     public void V2_Timeouts()

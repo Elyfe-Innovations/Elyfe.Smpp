@@ -555,7 +555,7 @@ namespace JamaaTech.Smpp.Net.Lib
             SmppSessionClosedEventArgs e = new SmppSessionClosedEventArgs(reason, exception);
             foreach (EventHandler<SmppSessionClosedEventArgs> del in SessionClosed.GetInvocationList())
             {
-                Task.Factory.StartNew(() =>
+                Task.Run(() =>
                 {
                     try
                     {
@@ -566,7 +566,7 @@ namespace JamaaTech.Smpp.Net.Lib
                         // Log the exception but don't let it propagate to avoid crashing the application
                         Logger.LogError(ex, "Exception in SessionClosed event handler");
                     }
-                }, TaskCreationOptions.DenyChildAttach);
+                });
             }
         }
 
