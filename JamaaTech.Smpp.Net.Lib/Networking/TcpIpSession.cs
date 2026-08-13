@@ -61,7 +61,7 @@ namespace JamaaTech.Smpp.Net.Lib.Networking
         /// <param name="sessionType">The type of session this instance represents</param>
         internal TcpIpSession(Socket socket, SessionType sessionType)
         {
-            if (socket == null) { throw new ArgumentNullException("socket"); }
+            if (socket == null) { throw new ArgumentNullException(nameof(socket)); }
             vSocket = socket;
             vSessionType = sessionType;
             vSyncRoot = new object();

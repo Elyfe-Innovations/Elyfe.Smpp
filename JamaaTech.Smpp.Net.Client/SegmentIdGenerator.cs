@@ -78,7 +78,7 @@ namespace JamaaTech.Smpp.Net.Client
 
         public DefaultSegmentIdGenerator(ISegmentIdCounterStore store)
         {
-            if (store == null) throw new ArgumentNullException("store");
+            if (store == null) throw new ArgumentNullException(nameof(store));
             _store = store;
         }
 
@@ -119,7 +119,7 @@ namespace JamaaTech.Smpp.Net.Client
         /// </summary>
         public static void Configure(ISegmentIdGenerator generator, bool throwIfAlreadyConfigured = true)
         {
-            if (generator == null) throw new ArgumentNullException("generator");
+            if (generator == null) throw new ArgumentNullException(nameof(generator));
             lock (_sync)
             {
                 if (_generator != null)

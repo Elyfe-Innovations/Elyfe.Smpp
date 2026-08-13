@@ -60,7 +60,7 @@ public sealed class DataSmResp : ResponsePDU
 
   protected override void Parse(ByteBuffer buffer)
   {
-    if (buffer == null) throw new ArgumentNullException("buffer");
+    if (buffer == null) throw new ArgumentNullException(nameof(buffer));
     //We require at least 1 byte for this pdu
     if (buffer.Length < 1) throw new NotEnoughBytesException("data_sm_resp requires at least 1 byte of body data");
     vMessageID = DecodeCString(buffer, vSmppEncodingService);

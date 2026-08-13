@@ -20,16 +20,7 @@ public static class Latin1Encoding
 {
   #region Variables
 
-  private static System.Text.Encoding vEncoding;
-
-  #endregion
-
-  #region Type Initializer
-
-  static Latin1Encoding()
-  {
-    vEncoding = System.Text.Encoding.GetEncoding(28591 /*"iso-8859-1"*/); //Latin 1 encoding
-  }
+  private static readonly System.Text.Encoding vEncoding = Compat.EncodingCompat.Latin1;
 
   #endregion
 

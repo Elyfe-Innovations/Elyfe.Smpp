@@ -76,7 +76,7 @@ public static class SMSCDefaultEncoding
 
   public static string GetString(byte[] bytes)
   {
-    if (bytes == null) throw new ArgumentNullException("bytes");
+    if (bytes == null) throw new ArgumentNullException(nameof(bytes));
     // Use Gsm Encoding
     if (UseGsmEncoding) return gsm.GetString(bytes);
 

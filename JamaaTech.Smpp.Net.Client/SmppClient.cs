@@ -209,7 +209,7 @@ namespace JamaaTech.Smpp.Net.Client
         /// <param name="timeOut">A value in miliseconds after which the send operation times out</param>
         public virtual void SendMessage(ShortMessage message, int timeOut)
         {
-            if (message == null) { throw new ArgumentNullException("message"); }
+            if (message == null) { throw new ArgumentNullException(nameof(message)); }
 
             //Check if connection is open
             if (vState != SmppConnectionState.Connected)
@@ -287,7 +287,7 @@ namespace JamaaTech.Smpp.Net.Client
         /// <returns>A task representing the asynchronous send message operation</returns>
         public virtual async Task SendMessageAsync(ShortMessage message, int timeout, CancellationToken cancellationToken = default)
         {
-            if (message == null) { throw new ArgumentNullException("message"); }
+            if (message == null) { throw new ArgumentNullException(nameof(message)); }
 
             //Check if connection is open
             if (vState != SmppConnectionState.Connected)
@@ -328,55 +328,6 @@ namespace JamaaTech.Smpp.Net.Client
             await SendMessageAsync(message, timeout);
         }
 
-        /// <summary>
-        /// Sends message asynchronously to a remote SMPP server
-        /// </summary>
-        /// <param name="message">A message to send</param>
-        /// <param name="timeout">A value in miliseconds after which the send operation times out</param>
-        /// <param name="callback">An <see cref="AsyncCallback"/> delegate</param>
-        /// <param name="state">An object that contains state information for this request</param>
-        /// <returns>An <see cref="IAsyncResult"/> that references the asynchronous send message operation</returns>
-        [Obsolete("Use SendMessageAsync instead. This method is provided for backward compatibility only.")]
-        public virtual IAsyncResult BeginSendMessage(ShortMessage message, int timeout, AsyncCallback callback, object state)
-        {
-            var task = SendMessageAsync(message, timeout);
-            if (callback != null)
-            {
-                task.ContinueWith(t => callback(t), TaskScheduler.Default);
-            }
-            return task;
-        }
-
-        /// <summary>
-        /// Sends message asynchronously to a remote SMPP server
-        /// </summary>
-        /// <param name="message">A message to send</param>
-        /// <param name="callback">An <see cref="AsyncCallback"/> delegate</param>
-        /// <param name="state">An object that contains state information for this request</param>
-        /// <returns>An <see cref="IAsyncResult"/> that references the asynchronous send message operation</returns>
-        [Obsolete("Use SendMessageAsync instead. This method is provided for backward compatibility only.")]
-        public virtual IAsyncResult BeginSendMessage(ShortMessage message, AsyncCallback callback, object state)
-        {
-            int timeout = vTrans.DefaultResponseTimeout;
-            return BeginSendMessage(message, timeout, callback, state);
-        }
-
-        /// <summary>
-        /// Ends a pending asynchronous send message operation
-        /// </summary>
-        /// <param name="result">An <see cref="IAsyncResult"/> that stores state information for this asynchronous operation</param>
-        [Obsolete("Use SendMessageAsync instead. This method is provided for backward compatibility only.")]
-        public virtual void EndSendMessage(IAsyncResult result)
-        {
-            if (result is Task task)
-            {
-                task.GetAwaiter().GetResult();
-            }
-            else
-            {
-                throw new ArgumentException("Invalid async result", nameof(result));
-            }
-        }
 
         /// <summary>
         /// Starts <see cref="SmppClient"/> and immediately connects to a remote SMPP server

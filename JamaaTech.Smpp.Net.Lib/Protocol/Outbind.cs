@@ -76,7 +76,7 @@ public class Outbind : RequestPDU
 
   protected override void Parse(ByteBuffer buffer)
   {
-    if (buffer == null) throw new ArgumentNullException("buffer");
+    if (buffer == null) throw new ArgumentNullException(nameof(buffer));
     //Outbind PDU requires at least 2 bytes
     if (buffer.Length < 2) throw new NotEnoughBytesException("Outbind PDU requires at least 2 bytes for body data");
     vSystemID = DecodeCString(buffer, vSmppEncodingService);

@@ -71,7 +71,7 @@ public sealed class CancelSm : SmOperationPDU
 
   protected override void Parse(ByteBuffer buffer)
   {
-    if (buffer == null) throw new ArgumentNullException("buffer");
+    if (buffer == null) throw new ArgumentNullException(nameof(buffer));
     vMessageID = DecodeCString(buffer, vSmppEncodingService);
     _sourceAddress = SmppAddress.Parse(buffer, vSmppEncodingService);
     vDestinationAddress = SmppAddress.Parse(buffer, vSmppEncodingService);

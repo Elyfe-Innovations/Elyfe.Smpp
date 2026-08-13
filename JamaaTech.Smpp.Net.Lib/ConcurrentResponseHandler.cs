@@ -169,7 +169,63 @@ namespace JamaaTech.Smpp.Net.Lib
                 return false;
             }
 
+            /// <inheritdoc cref="WaitForAlert"/>
+            public async Task<bool> WaitForAlertAsync(int timeOut, CancellationToken cancellationToken)
+            {
+                var completed = await Task
+                    .WhenAny(_signal.Task, Task.Delay(timeOut, cancellationToken))
+                    .ConfigureAwait(false);
+
+                if (completed == _signal.Task) { return true; }
+
+                cancellationToken.ThrowIfCancellationRequested();
+                Interlocked.Exchange(ref _timedOut, 1);
+                return false;
+            }
+
             public void AlertResponseReceived() => _signal.TrySetResult(true);
+        }
+
+        public Task<ResponsePDU> WaitResponseAsync(RequestPDU pdu, CancellationToken cancellationToken = default)
+            => WaitResponseAsync(pdu, vDefaultResponseTimeout, cancellationToken);
+
+        public async Task<ResponsePDU> WaitResponseAsync(RequestPDU pdu, int timeOut, CancellationToken cancellationToken = default)
+        {
+            var seq = pdu.Header.SequenceNumber;
+
+            // Fast path
+            var existing = Fetch(seq);
+            if (existing != null) return existing;
+
+            if (timeOut < sMinTimeout) timeOut = vDefaultResponseTimeout;
+            var ctx = new Waiter();
+
+            // Register waiter then re-check to close race
+            lock (_waitersLock)
+            {
+                _waiters[seq] = ctx;
+                existing = Fetch(seq);
+                if (existing != null)
+                {
+                    _waiters.Remove(seq);
+                    return existing;
+                }
+            }
+
+            // Await signal or timeout
+            await ctx.WaitForAlertAsync(timeOut, cancellationToken).ConfigureAwait(false);
+
+            var resp = Fetch(seq);
+            if (resp == null)
+            {
+                // Ensure removal if timeout path taken
+                lock (_waitersLock)
+                {
+                    _waiters.Remove(seq);
+                }
+                throw new SmppResponseTimedOutException();
+            }
+            return resp;
         }
 
         private ResponsePDU Fetch(uint seq)

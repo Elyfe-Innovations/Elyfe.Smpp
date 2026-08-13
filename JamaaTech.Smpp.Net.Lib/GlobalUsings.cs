@@ -1,6 +1,5 @@
-﻿// Global using directives
+// Global using directives
 
 global using System;
 global using System.Threading;
-global using System.Collections;
 global using System.Collections.Generic;

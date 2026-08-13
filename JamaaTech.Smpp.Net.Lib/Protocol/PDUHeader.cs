@@ -92,7 +92,7 @@ public sealed class PDUHeader
 
   public static PDUHeader Parse(ByteBuffer buffer, SmppEncodingService smppEncodingService)
   {
-    if (buffer == null) throw new ArgumentNullException("buffer");
+    if (buffer == null) throw new ArgumentNullException(nameof(buffer));
     if (buffer.Length < 16) throw new ArgumentException("Buffer length must not be less than 16 bytes");
     var cmdLength = smppEncodingService.GetIntFromBytes(buffer.Remove(4));
     var cmdType = (CommandType)smppEncodingService.GetIntFromBytes(buffer.Remove(4));

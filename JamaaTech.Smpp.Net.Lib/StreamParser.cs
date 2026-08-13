@@ -60,9 +60,9 @@ namespace JamaaTech.Smpp.Net.Lib
         /// <param name="requestProcessor">A callback delegate for processing <see cref="RequestPDU"/> pdu's</param>
         public StreamParser(TcpIpSession session, IResponseHandler responseQueue, PduProcessorCallback requestProcessor, SmppEncodingService smppEncodingService)
         {
-            if (session == null) { throw new ArgumentNullException("session"); }
-            if (requestProcessor == null) { throw new ArgumentNullException("requestProcessor"); }
-            if (responseQueue == null) { throw new ArgumentNullException("responseQueue"); }
+            if (session == null) { throw new ArgumentNullException(nameof(session)); }
+            if (requestProcessor == null) { throw new ArgumentNullException(nameof(requestProcessor)); }
+            if (responseQueue == null) { throw new ArgumentNullException(nameof(responseQueue)); }
             vTcpIpSession = session;
             vProcessorCallback = requestProcessor;
             vResponseHandler = responseQueue;

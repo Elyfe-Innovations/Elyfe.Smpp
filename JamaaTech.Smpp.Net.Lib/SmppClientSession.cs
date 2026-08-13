@@ -183,7 +183,7 @@ namespace JamaaTech.Smpp.Net.Lib
 
         private void SendPduBase(PDU pdu)
         {
-            if (pdu == null) { throw new ArgumentNullException("pdu"); }
+            if (pdu == null) { throw new ArgumentNullException(nameof(pdu)); }
             if (!(CheckState(pdu) && (pdu.AllowedSource & SmppEntityType.ESME) == SmppEntityType.ESME))
             { throw new SmppException(SmppErrorCode.ESME_RINVBNDSTS, "Incorrect bind status for given command"); }
             try { vTrans.Send(pdu); }
@@ -202,7 +202,7 @@ namespace JamaaTech.Smpp.Net.Lib
 
         private async Task SendPduBaseAsync(PDU pdu, CancellationToken cancellationToken = default)
         {
-            if (pdu == null) { throw new ArgumentNullException("pdu"); }
+            if (pdu == null) { throw new ArgumentNullException(nameof(pdu)); }
             if (!(CheckState(pdu) && (pdu.AllowedSource & SmppEntityType.ESME) == SmppEntityType.ESME))
             { throw new SmppException(SmppErrorCode.ESME_RINVBNDSTS, "Incorrect bind status for given command"); }
             try
@@ -229,8 +229,7 @@ namespace JamaaTech.Smpp.Net.Lib
             {
                 try
                 {
-                    return vRespHandler.WaitResponse(pdu, timeout);
-                    //return await vRespHandler.WaitResponseAsync(pdu, timeout, cancellationToken).ConfigureAwait(false);
+                    return await vRespHandler.WaitResponseAsync(pdu, timeout, cancellationToken).ConfigureAwait(false);
                 }
                 catch (SmppResponseTimedOutException)
                 {
@@ -251,35 +250,6 @@ namespace JamaaTech.Smpp.Net.Lib
             return await SendPduAsync(pdu, timeout);
         }
 
-        [Obsolete("Use SendPduAsync instead. This method is provided for backward compatibility only.")]
-        public IAsyncResult BeginSendPdu(RequestPDU pdu, int timeout, AsyncCallback callback, object @object)
-        {
-            var task = SendPduAsync(pdu, timeout);
-            if (callback != null)
-            {
-                task.ContinueWith(t => callback(t), TaskScheduler.Default);
-            }
-            return task;
-        }
-
-        [Obsolete("Use SendPduAsync instead. This method is provided for backward compatibility only.")]
-        public IAsyncResult BeginSendPdu(RequestPDU pdu, AsyncCallback callback, object @object)
-        {
-            int timeout = 0;
-            lock (vSyncRoot) { timeout = vDefaultResponseTimeout; }
-            return BeginSendPdu(pdu, timeout, callback, @object);
-        }
-
-        [Obsolete("Use SendPduAsync instead. This method is provided for backward compatibility only.")]
-        public ResponsePDU EndSendPdu(IAsyncResult result)
-        {
-            if (result is Task<ResponsePDU> task)
-            {
-                return task.GetAwaiter().GetResult();
-            }
-            throw new ArgumentException("Invalid async result", nameof(result));
-        }
-
         public void EndSession()
         {
             EndSession(SmppSessionCloseReason.EndSessionCalled, null);
@@ -290,7 +260,7 @@ namespace JamaaTech.Smpp.Net.Lib
             try
             {
                 TcpIpSession tcpIpSession = null;
-                if (bindInfo == null) { throw new ArgumentNullException("bindInfo"); }
+                if (bindInfo == null) { throw new ArgumentNullException(nameof(bindInfo)); }
                 //--
                 tcpIpSession = CreateTcpIpSession(bindInfo);
                 //--

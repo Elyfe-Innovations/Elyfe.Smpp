@@ -74,7 +74,7 @@ public class AlertNotification : SmPDU
 
   protected override void Parse(ByteBuffer buffer)
   {
-    if (buffer == null) throw new ArgumentNullException("buffer");
+    if (buffer == null) throw new ArgumentNullException(nameof(buffer));
     _sourceAddress = SmppAddress.Parse(buffer, vSmppEncodingService);
     vEsmeAddress = SmppAddress.Parse(buffer, vSmppEncodingService);
     //If there are some bytes left,

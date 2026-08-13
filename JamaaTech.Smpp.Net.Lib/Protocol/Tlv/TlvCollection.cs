@@ -31,7 +31,7 @@ public class TlvCollection : List<Tlv>
 
   public static TlvCollection Parse(ByteBuffer buffer, SmppEncodingService smppEncodingService)
   {
-    if (buffer == null) throw new ArgumentNullException("buffer");
+    if (buffer == null) throw new ArgumentNullException(nameof(buffer));
     var tlvs = new TlvCollection();
     while (buffer.Length > 0)
     {
