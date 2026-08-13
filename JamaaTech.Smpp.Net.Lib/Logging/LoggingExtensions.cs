@@ -1,12 +1,12 @@
-﻿using JamaaTech.Smpp.Net.Lib.Protocol.Tlv;
+using JamaaTech.Smpp.Net.Lib.Protocol.Tlv;
+using Microsoft.Extensions.Logging;
 using System.Text;
 
 namespace JamaaTech.Smpp.Net.Lib.Logging;
 
 public static class LoggingExtensions
 {
-  private static readonly global::Common.Logging.ILog _Log =
-    Common.Logging.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
+  private static readonly ILogger Logger = SmppLog.For(typeof(LoggingExtensions));
 
   public static Func<object, SmppEncodingService, string> DumpString { get; set; } = DumpStringDefault;
 
@@ -18,8 +18,7 @@ public static class LoggingExtensions
     }
     catch (Exception ex)
     {
-      if (_Log.IsErrorEnabled)
-        _Log.Error(ex);
+      Logger.LogError(ex, "Failed to dump {ObjectType} for logging", obj?.GetType().Name);
       return null;
     }
   }

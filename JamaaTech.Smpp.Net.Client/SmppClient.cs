@@ -23,12 +23,13 @@ using JamaaTech.Smpp.Net.Lib.Protocol;
 using JamaaTech.Smpp.Net.Lib.Util;
 using JamaaTech.Smpp.Net.Lib.Protocol.Tlv;
 using JamaaTech.Smpp.Net.Lib.Logging;
+using Microsoft.Extensions.Logging;
 
 namespace JamaaTech.Smpp.Net.Client
 {
     public class SmppClient : IDisposable
     {
-        private static readonly global::Common.Logging.ILog _Log = global::Common.Logging.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
+        private readonly ILogger _logger;
 
         #region Variables
         private SmppConnectionProperties vProperties;
@@ -83,8 +84,26 @@ namespace JamaaTech.Smpp.Net.Client
         #endregion
 
         #region Constructors
+        /// <summary>
+        /// Creates a new <see cref="SmppClient"/> that logs through the ambient
+        /// <see cref="SmppLog"/> factory.
+        /// </summary>
         public SmppClient()
+            : this(null)
         {
+        }
+
+        /// <summary>
+        /// Creates a new <see cref="SmppClient"/> that logs through <paramref name="loggerFactory"/>.
+        /// </summary>
+        /// <param name="loggerFactory">
+        /// The factory to log through, or <see langword="null"/> to use the ambient <see cref="SmppLog"/> factory.
+        /// </param>
+        public SmppClient(ILoggerFactory loggerFactory)
+        {
+            _logger = loggerFactory == null
+                ? SmppLog.For<SmppClient>()
+                : loggerFactory.CreateLogger<SmppClient>();
             vProperties = new SmppConnectionProperties();
             vSmppEncodingService = new SmppEncodingService();
             vConnSyncRoot = new object();
@@ -202,12 +221,14 @@ namespace JamaaTech.Smpp.Net.Client
 
             foreach (SendSmPDU pdu in message.GetMessagePDUs(vProperties.DefaultEncoding, vSmppEncodingService, destAddress, srcAddress))
             {
-                if (_Log.IsDebugEnabled) _Log.DebugFormat("SendMessage SendSmPDU: {0}", LoggingExtensions.DumpString(pdu, vSmppEncodingService));
+                if (_logger.IsEnabled(LogLevel.Debug))
+                    _logger.LogDebug("SendMessage SendSmPDU: {Pdu}", LoggingExtensions.DumpString(pdu, vSmppEncodingService));
                 ResponsePDU resp = SendPdu(pdu, timeOut);
                 var submitSmResp = resp as SubmitSmResp;
                 if (submitSmResp != null)
                 {
-                    if (_Log.IsDebugEnabled) _Log.DebugFormat("SendMessage Response: {0}", LoggingExtensions.DumpString(resp, vSmppEncodingService));
+                    if (_logger.IsEnabled(LogLevel.Debug))
+                        _logger.LogDebug("SendMessage Response: {Response}", LoggingExtensions.DumpString(resp, vSmppEncodingService));
                     messageId = ((SubmitSmResp)resp).MessageID;
                 }
                 // Set the message id only if we have a valid message id
@@ -278,12 +299,14 @@ namespace JamaaTech.Smpp.Net.Client
             
             foreach (SendSmPDU pdu in message.GetMessagePDUs(vProperties.DefaultEncoding, vSmppEncodingService,destAddress, srcAddress))
             {
-                if (_Log.IsDebugEnabled) _Log.DebugFormat("SendMessage SendSmPDU: {0}", LoggingExtensions.DumpString(pdu, vSmppEncodingService));
+                if (_logger.IsEnabled(LogLevel.Debug))
+                    _logger.LogDebug("SendMessage SendSmPDU: {Pdu}", LoggingExtensions.DumpString(pdu, vSmppEncodingService));
                 ResponsePDU resp = await SendPduAsync(pdu, timeout, cancellationToken).ConfigureAwait(false);
                 var submitSmResp = resp as SubmitSmResp;
                 if (submitSmResp != null)
                 {
-                    if (_Log.IsDebugEnabled) _Log.DebugFormat("SendMessage Response: {0}", LoggingExtensions.DumpString(resp, vSmppEncodingService));
+                    if (_logger.IsEnabled(LogLevel.Debug))
+                        _logger.LogDebug("SendMessage Response: {Response}", LoggingExtensions.DumpString(resp, vSmppEncodingService));
                     messageId = ((SubmitSmResp)resp).MessageID;
                 }
                 message.ReceiptedMessageId = messageId;
@@ -441,7 +464,7 @@ namespace JamaaTech.Smpp.Net.Client
                     try { OpenSession(bindInfo, useSepConn, timeOut); }
                     catch (Exception ex)
                     {
-                        _Log.ErrorFormat("OpenSession: {0}", ex, ex.Message);
+                        _logger.LogError(ex, "OpenSession failed");
                         if (vTraceSwitch.TraceError) { Trace.TraceError(ex.ToString()); }
                         vLastException = ex; throw;
                     }
@@ -615,8 +638,8 @@ namespace JamaaTech.Smpp.Net.Client
             SingleDestinationPDU pdu = e.Request as SingleDestinationPDU;
             if (pdu == null) { return; }
 
-            if (_Log.IsDebugEnabled)
-                _Log.DebugFormat("Received PDU: {0}", LoggingExtensions.DumpString(pdu, vSmppEncodingService));
+            if (_logger.IsEnabled(LogLevel.Debug))
+                _logger.LogDebug("Received PDU: {Pdu}", LoggingExtensions.DumpString(pdu, vSmppEncodingService));
 
             if (vTraceSwitch.TraceVerbose)
             {
@@ -626,7 +649,7 @@ namespace JamaaTech.Smpp.Net.Client
             try { message = MessageFactory.CreateMessage(pdu); }
             catch (SmppException smppEx)
             {
-                _Log.ErrorFormat("200019:SMPP message decoding failure - {0} - {1} {2}", smppEx, smppEx.ErrorCode, new ByteBuffer(pdu.GetBytes()).DumpString(), smppEx.Message);
+                _logger.LogError(smppEx, "200019:SMPP message decoding failure - {ErrorCode} - {Pdu}", smppEx.ErrorCode, new ByteBuffer(pdu.GetBytes()).DumpString());
                 if (vTraceSwitch.TraceError)
                 {
                     Trace.WriteLine(string.Format(
@@ -640,7 +663,7 @@ namespace JamaaTech.Smpp.Net.Client
             }
             catch (Exception ex)
             {
-                _Log.ErrorFormat("200019:SMPP message decoding failure - {0}", ex, new ByteBuffer(pdu.GetBytes()).DumpString());
+                _logger.LogError(ex, "200019:SMPP message decoding failure - {Pdu}", new ByteBuffer(pdu.GetBytes()).DumpString());
                 if (vTraceSwitch.TraceError)
                 {
                     Trace.WriteLine(string.Format(
@@ -653,8 +676,8 @@ namespace JamaaTech.Smpp.Net.Client
                 return;
             }
 
-            if (message != null && _Log.IsDebugEnabled)
-                _Log.DebugFormat("PduReceived: message: {0}", LoggingExtensions.DumpString(message, vSmppEncodingService));
+            if (message != null && _logger.IsEnabled(LogLevel.Debug))
+                _logger.LogDebug("PduReceived: message: {Message}", LoggingExtensions.DumpString(message, vSmppEncodingService));
 
             if (vTraceSwitch.TraceVerbose)
             {

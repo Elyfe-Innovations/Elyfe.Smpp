@@ -14,11 +14,14 @@
  *
  ************************************************************************/
 
+using JamaaTech.Smpp.Net.Lib.Logging;
+using Microsoft.Extensions.Logging;
+
 namespace JamaaTech.Smpp.Net.Lib.Util
 {
     public abstract class RunningComponent
     {
-        internal static readonly global::Common.Logging.ILog _Log = global::Common.Logging.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
+        private static readonly ILogger Logger = SmppLog.For(typeof(RunningComponent));
 
         #region Variables
         protected bool vRunning;
@@ -84,7 +87,7 @@ namespace JamaaTech.Smpp.Net.Lib.Util
                         if (vRunningThread.IsAlive)
                         {
                             // Log warning but don't force abort - let it finish naturally
-                            System.Diagnostics.Debug.WriteLine("Warning: Thread did not stop gracefully within timeout");
+                            Logger.LogWarning("{Component} did not stop gracefully within the timeout", GetType().Name);
                         }
                     }
                     vRunning = false;
@@ -109,8 +112,7 @@ namespace JamaaTech.Smpp.Net.Lib.Util
             catch (System.Exception ex)
             {
                 // Swallow to prevent crashing the process, but log for diagnostics
-                System.Diagnostics.Debug.WriteLine($"RunningComponent terminated due to exception: {ex}");
-                _Log.Error("RunningComponent terminated due to exception", ex);
+                Logger.LogError(ex, "{Component} terminated due to an unhandled exception", GetType().Name);
             }
             finally
             {

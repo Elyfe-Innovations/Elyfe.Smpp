@@ -3,6 +3,7 @@ using JamaaTech.Smpp.Net.Lib.Util;
 using System;
 using System.Threading;
 using JamaaTech.Smpp.Net.Lib;
+using JamaaTech.Smpp.Net.Lib.Logging;
 using JamaaTech.Smpp.Net.Lib.Protocol;
 using Microsoft.Extensions.Logging;
 using System.Linq;
@@ -32,7 +33,7 @@ namespace DemoClient
         static async Task Main(string[] args)
         {
             // Route the library's own diagnostics to the same console sink.
-            Common.Logging.LogManager.SetLoggerFactory(LoggerFactory);
+            SmppLog.SetLoggerFactory(LoggerFactory);
 
             var encSrv = new SmppEncodingService();
 

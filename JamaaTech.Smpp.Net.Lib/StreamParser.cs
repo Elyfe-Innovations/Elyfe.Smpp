@@ -15,9 +15,11 @@
  ************************************************************************/
 
 using System.Threading.Tasks;
+using JamaaTech.Smpp.Net.Lib.Logging;
 using JamaaTech.Smpp.Net.Lib.Protocol;
 using JamaaTech.Smpp.Net.Lib.Networking;
 using JamaaTech.Smpp.Net.Lib.Util;
+using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 
 namespace JamaaTech.Smpp.Net.Lib
@@ -27,6 +29,7 @@ namespace JamaaTech.Smpp.Net.Lib
     /// </summary>
     public class StreamParser : RunningComponent
     {
+        private static readonly ILogger Logger = SmppLog.For(typeof(StreamParser));
 
         #region Variables
         private TcpIpSession vTcpIpSession;
@@ -97,7 +100,7 @@ namespace JamaaTech.Smpp.Net.Lib
                             }
                             catch (Exception ex)
                             {
-                                _Log.ErrorFormat("Exception in PDU processor callback: {0}", ex, ex.Message);
+                                Logger.LogError(ex, "Exception in PDU processor callback");
                             }
                         }, TaskCreationOptions.DenyChildAttach);
                     }
@@ -107,7 +110,7 @@ namespace JamaaTech.Smpp.Net.Lib
                 catch (TcpIpException) { /*Silent catch*/ }
                 catch (Exception ex)
                 {
-                    _Log.ErrorFormat("200015:Unanticipated stream parser exception: {0}", ex, ex.Message);
+                    Logger.LogError(ex, "200015:Unanticipated stream parser exception");
                     if (vTraceSwitch.TraceError)
                     {
                         Trace.WriteLine(string.Format(
@@ -131,7 +134,7 @@ namespace JamaaTech.Smpp.Net.Lib
             try { headerBytes = ReadHeaderBytes(); }
             catch (TcpIpException tcpIp_ex_1)
             {
-                _Log.ErrorFormat("200010:TCP/IP Exception encountered while reading pdu header bytes: {0}", tcpIp_ex_1, tcpIp_ex_1.Message);
+                Logger.LogError(tcpIp_ex_1, "200010:TCP/IP exception encountered while reading pdu header bytes");
                 if (vTraceSwitch.TraceInfo)
                 {
                     Trace.WriteLine(string.Format(
@@ -142,7 +145,8 @@ namespace JamaaTech.Smpp.Net.Lib
             }
             //--
             header = PDUHeader.Parse(new ByteBuffer(headerBytes), vSmppEncodingService);
-            _Log.TraceFormat("PDU header: {0}", Logging.LoggingExtensions.DumpString(header, vSmppEncodingService));
+            if (Logger.IsEnabled(LogLevel.Trace))
+                Logger.LogTrace("PDU header: {PduHeader}", LoggingExtensions.DumpString(header, vSmppEncodingService));
 
             try { pdu = PDU.CreatePDU(header, vSmppEncodingService); }
             catch (InvalidPDUCommandException inv_ex)
@@ -154,7 +158,7 @@ namespace JamaaTech.Smpp.Net.Lib
                     try { iBuffer.Append(ReadBodyBytes((int)header.CommandLength - 16)); }
                     catch (TcpIpException tcpIp_ex_3) { HandleException(tcpIp_ex_3); }
                 }
-                _Log.WarnFormat("200011:Invalid PDU command type:{0};", iBuffer.DumpString());
+                Logger.LogWarning("200011:Invalid PDU command type: {Header}", iBuffer.DumpString());
                 if (vTraceSwitch.TraceWarning)
                 {
                     Trace.WriteLine(string.Format(
@@ -167,7 +171,7 @@ namespace JamaaTech.Smpp.Net.Lib
             try { bodyBytes = ReadBodyBytes((int)header.CommandLength - 16); }
             catch (TcpIpException tpcIp_ex_2)
             {
-                _Log.ErrorFormat("200012:TCP/IP Exception encountered while reading pdu body bytes: {0}", tpcIp_ex_2, tpcIp_ex_2.Message);
+                Logger.LogError(tpcIp_ex_2, "200012:TCP/IP exception encountered while reading pdu body bytes");
                 if (vTraceSwitch.TraceInfo)
                 {
                     Trace.WriteLine(string.Format(
@@ -184,7 +188,7 @@ namespace JamaaTech.Smpp.Net.Lib
                 pBuffer.Append(headerBytes);
                 pBuffer.Append(bodyBytes);
                 RaisePduErrorEvent(pdu_ex, pBuffer.ToBytes(), header, pdu);
-                _Log.WarnFormat("200013:Malformed PDU body received:{0}", pdu_ex, pBuffer.DumpString());
+                Logger.LogWarning(pdu_ex, "200013:Malformed PDU body received: {Body}", pBuffer.DumpString());
                 if (vTraceSwitch.TraceWarning)
                 {
                     Trace.WriteLine(string.Format(
@@ -214,7 +218,7 @@ namespace JamaaTech.Smpp.Net.Lib
             {
                 int receiveCount = vTcpIpSession.Receive(bytes, received, remaining);
                 if (receiveCount == 0)
-                    _Log.Warn("200014:TCP/IP receive operation returned zero bytes;");
+                    Logger.LogWarning("200014:TCP/IP receive operation returned zero bytes");
 
                 if (receiveCount == 0 && vTraceSwitch.TraceWarning)
                 { Trace.WriteLine("200014:TCP/IP receive operation returned zero bytes;"); }
@@ -244,7 +248,7 @@ namespace JamaaTech.Smpp.Net.Lib
                     }
                     catch (Exception ex)
                     {
-                        _Log.ErrorFormat("Exception in PDUError event handler: {0}", ex, ex.Message);
+                        Logger.LogError(ex, "Exception in PDUError event handler");
                     }
                 }, TaskCreationOptions.DenyChildAttach);
             }
@@ -264,7 +268,7 @@ namespace JamaaTech.Smpp.Net.Lib
                     }
                     catch (Exception ex)
                     {
-                        _Log.ErrorFormat("Exception in ParserException event handler: {0}", ex, ex.Message);
+                        Logger.LogError(ex, "Exception in ParserException event handler");
                     }
                 }, TaskCreationOptions.DenyChildAttach);
             }

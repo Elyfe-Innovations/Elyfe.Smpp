@@ -14,15 +14,16 @@
  *
  ************************************************************************/
 
+using JamaaTech.Smpp.Net.Lib.Logging;
 using JamaaTech.Smpp.Net.Lib.Util;
+using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 
 namespace JamaaTech.Smpp.Net.Lib.Protocol;
 
 public abstract class SendSmPDU : SmPDU
 {
-  private static readonly global::Common.Logging.ILog _Log =
-    Common.Logging.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
+  private static readonly ILogger Logger = SmppLog.For(typeof(SendSmPDU));
 
   #region Variables
 
@@ -104,7 +105,7 @@ public abstract class SendSmPDU : SmPDU
     //Check if the UDH is set in the esm_class field
     if ((EsmClass & EsmClass.UdhiIndicator) == EsmClass.UdhiIndicator)
     {
-      _Log.Info("200020:UDH field presense detected;");
+      Logger.LogInformation("200020:UDH field presence detected");
       if (vTraceSwitch.TraceInfo) Trace.WriteLine("200020:UDH field presense detected;");
       try
       {
@@ -112,7 +113,7 @@ public abstract class SendSmPDU : SmPDU
       }
       catch (Exception ex)
       {
-        _Log.ErrorFormat("20023:UDH field parsing error - {0}", ex, new ByteBuffer(msgBytes).DumpString());
+        Logger.LogError(ex, "20023:UDH field parsing error - {MessageBytes}", new ByteBuffer(msgBytes).DumpString());
         if (vTraceSwitch.TraceError)
           Trace.WriteLine(string.Format(
             "20023:UDH field parsing error - {0} {1};",
@@ -129,7 +130,7 @@ public abstract class SendSmPDU : SmPDU
     }
     catch (Exception ex1)
     {
-      _Log.ErrorFormat("200019:SMS message decoding failure - {0}", ex1, new ByteBuffer(msgBytes).DumpString());
+      Logger.LogError(ex1, "200019:SMS message decoding failure - {MessageBytes}", new ByteBuffer(msgBytes).DumpString());
       if (vTraceSwitch.TraceError)
         Trace.WriteLine(string.Format(
           "200019:SMS message decoding failure - {0} {1};",
