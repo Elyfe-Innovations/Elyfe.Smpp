@@ -24,6 +24,14 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <!-- Smpp.Net.Lib is packed into this package as a plain assembly rather than as a
+         package dependency, so its own dependencies never reach the nuspec. Mirror them
+         here or consumers hit a missing assembly at runtime. -->
+    <PackageReference Include="Microsoft.Extensions.Options" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.1'">
+    <PackageReference Include="System.Threading.Channels" />
   </ItemGroup>
 
   <Target DependsOnTargets="ResolveReferences" Name="CopyProjectReferencesToPackage">
