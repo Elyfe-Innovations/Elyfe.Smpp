@@ -17,6 +17,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Tasks;
+using JamaaTech.Smpp.Net.Lib.Compat;
 using JamaaTech.Smpp.Net.Lib.Logging;
 using Microsoft.Extensions.Logging;
 
@@ -110,15 +111,15 @@ namespace JamaaTech.Smpp.Net.Lib.Networking
              * - The route to the destination host is not known
              * - Connection request to the remote host timed out
              */
-            switch (exception.NativeErrorCode)
+            switch (exception.SocketErrorCode)
             {
-                case 10050: //WSAENETDOWN -- The network is down
-                case 10051: //WSAENETUNREACH -- The network is unreachable
-                case 10060: //WSAETIMEDOUT -- Connection time out
-                case 10061: //WSAECONNREFUSED -- No specified port is in a listening state on the remote machine
-                case 10064: //WSAHOSTDOWN -- The remote host is down
-                case 10065: //WSAHOSTUNREACH -- The remote host is unreachable
-                case 11001: //WSAHOST_NOT_FOUND -- Host not found, no such host is known
+                case SocketError.NetworkDown: //The network is down
+                case SocketError.NetworkUnreachable: //The network is unreachable
+                case SocketError.TimedOut: //Connection timed out
+                case SocketError.ConnectionRefused: //No specified port is in a listening state on the remote machine
+                case SocketError.HostDown: //The remote host is down
+                case SocketError.HostUnreachable: //The remote host is unreachable
+                case SocketError.HostNotFound: //Host not found, no such host is known
                     //Wrap this exception in a TcpIpConnectionException exception and throw
                     throw new TcpIpConnectionException(exception);
                 default:
@@ -165,15 +166,15 @@ namespace JamaaTech.Smpp.Net.Lib.Networking
              * Such situations will render the session incapable to serve
              * any subsequent requests.
              */
-            switch (exception.NativeErrorCode)
+            switch (exception.SocketErrorCode)
             {
-                case 10050: //WSAENETDOWN -- Network is down
-                case 10052: //WSAENETRESET -- Connection broken due to failure in connection
-                case 10053: //WSAECONNABORTED -- Connection was aborted by a software in the host machine
-                case 10054: //WSAECONNRESET -- Remote host forcebly closed connection
-                case 10057: //WSAENOTCONN -- Socket is not connected
-                case 10064: //WSAHOSTDOWN -- Remote host is down
-                case 10101: //WSAEDISCON -- Remote party has called a graceful shutdown
+                case SocketError.NetworkDown: //Network is down
+                case SocketError.NetworkReset: //Connection broken due to failure in connection
+                case SocketError.ConnectionAborted: //Connection was aborted by software in the host machine
+                case SocketError.ConnectionReset: //Remote host forcibly closed the connection
+                case SocketError.NotConnected: //Socket is not connected
+                case SocketError.HostDown: //Remote host is down
+                case SocketError.Disconnecting: //Remote party has called a graceful shutdown
                     //Wrap this exception in a new exception
                     throw new TcpIpSessionClosedException(exception);
                 default:
@@ -191,7 +192,9 @@ namespace JamaaTech.Smpp.Net.Lib.Networking
             Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             //Setting default properties
             socket.NoDelay = true; //Disable Nagle algorithm
-            socket.LingerState.Enabled = false; //Use default linger options
+            //Assign a new LingerOption: LingerState returns a copy on some runtimes,
+            //so mutating it in place silently does nothing.
+            socket.LingerState = new LingerOption(false, 0);
             socket.SendBufferSize = 1024; //Set send buffer size to 1KiB
             socket.ReceiveBufferSize = 4 * 1024; //Set receive buffer size to 4KiB
             socket.SendTimeout = 0; //Sending operation should never timeout
@@ -270,26 +273,75 @@ namespace JamaaTech.Smpp.Net.Lib.Networking
             { HandleException(ex); }
         }
 
-        public async Task SendAsync(byte[] buffer, CancellationToken cancellationToken = default)
+        public Task SendAsync(byte[] buffer, CancellationToken cancellationToken = default)
+        {
+            if (buffer == null) { throw new ArgumentNullException(nameof(buffer)); }
+            return SendAsync(new ReadOnlyMemory<byte>(buffer), cancellationToken);
+        }
+
+        public Task SendAsync(byte[] buffer, int start, int length, CancellationToken cancellationToken = default)
+        {
+            if (buffer == null) { throw new ArgumentNullException(nameof(buffer)); }
+            return SendAsync(new ReadOnlyMemory<byte>(buffer, start, length), cancellationToken);
+        }
+
+        public async Task SendAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
             CheckSession();
-            try 
-            { 
-                await vSocket.SendAsync(new ArraySegment<byte>(buffer), SocketFlags.None).ConfigureAwait(false);
+            try
+            {
+                //Send returns once it has handed the whole buffer to the socket, but a
+                //partial send is possible, so keep going until the buffer is drained.
+                while (!buffer.IsEmpty)
+                {
+                    int sent = await vSocket
+                        .SendAsync(buffer, SocketFlags.None, cancellationToken)
+                        .ConfigureAwait(false);
+
+                    if (sent <= 0) { break; }
+                    buffer = buffer.Slice(sent);
+                }
             }
             catch (SocketException ex)
             { HandleException(ex); }
         }
 
-        public async Task SendAsync(byte[] buffer, int start, int length, CancellationToken cancellationToken = default)
+        public Task<int> ReceiveAsync(byte[] buffer, CancellationToken cancellationToken = default)
+        {
+            if (buffer == null) { throw new ArgumentNullException(nameof(buffer)); }
+            return ReceiveAsync(new Memory<byte>(buffer), cancellationToken);
+        }
+
+        public Task<int> ReceiveAsync(byte[] buffer, int start, int length, CancellationToken cancellationToken = default)
+        {
+            if (buffer == null) { throw new ArgumentNullException(nameof(buffer)); }
+            return ReceiveAsync(new Memory<byte>(buffer, start, length), cancellationToken);
+        }
+
+        public async Task<int> ReceiveAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             CheckSession();
-            try 
-            { 
-                await vSocket.SendAsync(new ArraySegment<byte>(buffer, start, length), SocketFlags.None).ConfigureAwait(false);
+            try
+            {
+                int received = await vSocket
+                    .ReceiveAsync(buffer, SocketFlags.None, cancellationToken)
+                    .ConfigureAwait(false);
+
+                //If underlying socket returns zero bytes, close this session
+                //as this indicates a closed socket connection by the remote host.
+                if (received == 0)
+                {
+                    lock (vSyncRoot)
+                    {
+                        if (!vIsAlive) { return received; }
+                        vIsAlive = false;
+                    }
+                    TerminateSession(SessionCloseReason.SocketShutdown, null);
+                }
+                return received;
             }
             catch (SocketException ex)
-            { HandleException(ex); }
+            { HandleException(ex); throw; }
         }
 
         public int Receive(byte[] buffer)
@@ -392,6 +444,39 @@ namespace JamaaTech.Smpp.Net.Lib.Networking
             session.vProperties = new TcpIpSessionProperties(socket);
             session.vIsAlive = true;
             return session;
+        }
+
+        /// <summary>
+        /// Establishes a TCP/IP session with the remote host at <paramref name="endPoint"/>.
+        /// </summary>
+        public static async Task<TcpIpSession> OpenClientSessionAsync(EndPoint endPoint,
+            CancellationToken cancellationToken = default)
+        {
+            if (endPoint == null) { throw new ArgumentNullException(nameof(endPoint)); }
+
+            Socket socket = CreateClientSocket(); //Creates a socket to be used for client connection
+            try { await SocketCompat.ConnectAsync(socket, endPoint, cancellationToken).ConfigureAwait(false); }
+            catch (SocketException ex) { HandleConnectionException(ex); }
+            TcpIpSession session = new TcpIpSession(socket, SessionType.Client);
+            session.vProperties = new TcpIpSessionProperties(socket);
+            session.vIsAlive = true;
+            return session;
+        }
+
+        /// <inheritdoc cref="OpenClientSessionAsync(EndPoint, CancellationToken)"/>
+        public static Task<TcpIpSession> OpenClientSessionAsync(IPAddress ipAddress, int port,
+            CancellationToken cancellationToken = default)
+        {
+            if (ipAddress == null) { throw new ArgumentNullException(nameof(ipAddress)); }
+            return OpenClientSessionAsync(new IPEndPoint(ipAddress, port), cancellationToken);
+        }
+
+        /// <inheritdoc cref="OpenClientSessionAsync(EndPoint, CancellationToken)"/>
+        public static Task<TcpIpSession> OpenClientSessionAsync(string hostName, int port,
+            CancellationToken cancellationToken = default)
+        {
+            if (hostName == null) { throw new ArgumentNullException(nameof(hostName)); }
+            return OpenClientSessionAsync(new DnsEndPoint(hostName, port), cancellationToken);
         }
         #endregion
         #endregion
