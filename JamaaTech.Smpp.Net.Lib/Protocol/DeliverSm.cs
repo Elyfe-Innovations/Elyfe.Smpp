@@ -144,7 +144,7 @@ public class DeliverSm : SingleDestinationPDU
 
   protected override void Parse(ByteBuffer buffer)
   {
-    if (buffer == null) throw new ArgumentNullException("buffer");
+    if (buffer == null) throw new ArgumentNullException(nameof(buffer));
     vServiceType = DecodeCString(buffer, vSmppEncodingService);
     _sourceAddress = SmppAddress.Parse(buffer, vSmppEncodingService);
     vDestinationAddress = SmppAddress.Parse(buffer, vSmppEncodingService);

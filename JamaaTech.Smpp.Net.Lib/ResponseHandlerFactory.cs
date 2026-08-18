@@ -2,51 +2,56 @@
  * Factory for creating IResponseHandler based on ResponseHandlerOptions.
  ************************************************************************/
 
+using Microsoft.Extensions.Options;
+
 namespace JamaaTech.Smpp.Net.Lib
 {
     public static class ResponseHandlerFactory
     {
-        private static ResponseHandlerOptions _options;
-        private static readonly object _sync = new object();
+        private static IOptions<ResponseHandlerOptions> _options = Options.Create(new ResponseHandlerOptions());
 
+        /// <summary>
+        /// Creates a handler from the ambient options set by <see cref="Configure"/>.
+        /// </summary>
         public static IResponseHandler Create()
         {
-            return Create(_options);
+            return Create(_options.Value);
         }
 
+        /// <summary>
+        /// Creates a handler from <paramref name="options"/>, or from the defaults when it
+        /// is <see langword="null"/>.
+        /// </summary>
         public static IResponseHandler Create(ResponseHandlerOptions options)
         {
-            if (options == null) options = new ResponseHandlerOptions();
+            options ??= new ResponseHandlerOptions();
 
-            switch (options.Implementation.Trim().ToLowerInvariant())
+            switch (options.Implementation)
             {
-                case "v1":
-                case "legacy":
-                    // You may optionally modify the legacy ResponseHandler to implement IResponseHandler.
-                    return new ResponseHandler() { DefaultResponseTimeout = options.DefaultResponseTimeout };
-                case "concurrent": 
+                case ResponseHandlerImplementation.Concurrent:
                     return new ConcurrentResponseHandler(options);
-               
-                case "v2":
-                case "default":
+
+                case ResponseHandlerImplementation.Default:
                 default:
-                    return new ResponseHandlerV2() { DefaultResponseTimeout = options.DefaultResponseTimeout };
+                    return new ResponseHandlerV2 { DefaultResponseTimeout = options.DefaultResponseTimeout };
             }
         }
 
-        public static void Configure(ResponseHandlerOptions options, bool throwIfAlreadyConfigured = true)
+        /// <summary>
+        /// Sets the options <see cref="Create()"/> reads. Callers that already have a DI
+        /// container should resolve <see cref="IOptions{TOptions}"/> and pass it here once
+        /// during startup; the last call wins.
+        /// </summary>
+        public static void Configure(IOptions<ResponseHandlerOptions> options)
         {
-            if (options == null) throw new ArgumentNullException("options");
-            lock (_sync)
-            {
-                if (_options != null)
-                {
-                    if (throwIfAlreadyConfigured)
-                        throw new InvalidOperationException("ResponseHandlerOptions already configured.");
-                    return;
-                }
-                _options = options;
-            }
+            _options = options ?? throw new ArgumentNullException(nameof(options));
+        }
+
+        /// <inheritdoc cref="Configure(IOptions{ResponseHandlerOptions})"/>
+        public static void Configure(ResponseHandlerOptions options)
+        {
+            if (options == null) throw new ArgumentNullException(nameof(options));
+            Configure(Options.Create(options));
         }
     }
 }

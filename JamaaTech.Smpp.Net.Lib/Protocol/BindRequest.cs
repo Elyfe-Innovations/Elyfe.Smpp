@@ -134,7 +134,7 @@ public abstract class BindRequest : RequestPDU
 
   protected override void Parse(ByteBuffer buffer)
   {
-    if (buffer == null) throw new ArgumentNullException("buffer");
+    if (buffer == null) throw new ArgumentNullException(nameof(buffer));
     const int minBytes = 7;
     if (buffer.Length < minBytes)
       throw new NotEnoughBytesException("BindRequest requires at least 7 bytes for body parameters");

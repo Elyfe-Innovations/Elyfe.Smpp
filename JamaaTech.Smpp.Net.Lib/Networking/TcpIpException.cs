@@ -42,7 +42,7 @@ public class TcpIpException : Exception
 
   internal static void WrapAndThrow(Exception innerException)
   {
-    if (innerException == null) throw new ArgumentNullException("innerException");
+    if (innerException == null) throw new ArgumentNullException(nameof(innerException));
     throw new TcpIpException(innerException.Message, innerException);
   }
 

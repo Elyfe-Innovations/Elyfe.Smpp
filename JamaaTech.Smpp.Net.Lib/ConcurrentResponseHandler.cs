@@ -4,6 +4,7 @@
  * cleans up consumed responses & wait contexts.
  ************************************************************************/
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using JamaaTech.Smpp.Net.Lib.Protocol;
 
 namespace JamaaTech.Smpp.Net.Lib
@@ -12,7 +13,7 @@ namespace JamaaTech.Smpp.Net.Lib
     {
         private int vDefaultResponseTimeout;
         private readonly IDictionary<uint, ResponsePDU> _responses = new Dictionary<uint, ResponsePDU>(32);
-        private readonly IDictionary<uint, PDUWaitContext> _waiters = new Dictionary<uint, PDUWaitContext>(32);
+        private readonly IDictionary<uint, Waiter> _waiters = new Dictionary<uint, Waiter>(32);
         private readonly object _responsesLock = new object();
         private readonly object _waitersLock = new object();
         // Minimum enforced timeout (was hard-coded 5000). Made adjustable for testing.
@@ -79,7 +80,7 @@ namespace JamaaTech.Smpp.Net.Lib
                 _responses[seq] = pdu;
             }
 
-            PDUWaitContext ctx = null;
+            Waiter ctx = null;
             lock (_waitersLock)
             {
                 if (_waiters.TryGetValue(seq, out ctx))
@@ -117,7 +118,7 @@ namespace JamaaTech.Smpp.Net.Lib
             if (existing != null) return existing;
 
             if (timeOut < sMinTimeout) timeOut = vDefaultResponseTimeout;
-            var ctx = new PDUWaitContext(seq, timeOut);
+            var ctx = new Waiter();
 
             // Register waiter then re-check to close race
             lock (_waitersLock)
@@ -132,7 +133,7 @@ namespace JamaaTech.Smpp.Net.Lib
             }
 
             // Await signal or timeout
-            ctx.WaitForAlert();
+            ctx.WaitForAlert(timeOut);
 
             var resp = Fetch(seq);
             if (resp == null)
@@ -142,6 +143,92 @@ namespace JamaaTech.Smpp.Net.Lib
                 {
                     _waiters.Remove(seq);
                 }
+                throw new SmppResponseTimedOutException();
+            }
+            return resp;
+        }
+
+        /// <summary>
+        /// A one-shot signal for a pending sequence number. Backed by a
+        /// TaskCompletionSource rather than an AutoResetEvent, so nothing needs disposing.
+        /// </summary>
+        private sealed class Waiter
+        {
+            private readonly TaskCompletionSource<bool> _signal =
+                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            private int _timedOut;
+
+            public bool TimedOut => Volatile.Read(ref _timedOut) != 0;
+
+            /// <summary>Blocks until the response arrives or <paramref name="timeOut"/> elapses.</summary>
+            public bool WaitForAlert(int timeOut)
+            {
+                if (_signal.Task.Wait(timeOut)) { return true; }
+                Interlocked.Exchange(ref _timedOut, 1);
+                return false;
+            }
+
+            /// <inheritdoc cref="WaitForAlert"/>
+            public async Task<bool> WaitForAlertAsync(int timeOut, CancellationToken cancellationToken)
+            {
+                var completed = await Task
+                    .WhenAny(_signal.Task, Task.Delay(timeOut, cancellationToken))
+                    .ConfigureAwait(false);
+
+                if (completed == _signal.Task) { return true; }
+
+                cancellationToken.ThrowIfCancellationRequested();
+                Interlocked.Exchange(ref _timedOut, 1);
+                return false;
+            }
+
+            public void AlertResponseReceived() => _signal.TrySetResult(true);
+        }
+
+        public Task<ResponsePDU> WaitResponseAsync(RequestPDU pdu, CancellationToken cancellationToken = default)
+            => WaitResponseAsync(pdu, vDefaultResponseTimeout, cancellationToken);
+
+        public async Task<ResponsePDU> WaitResponseAsync(RequestPDU pdu, int timeOut, CancellationToken cancellationToken = default)
+        {
+            var seq = pdu.Header.SequenceNumber;
+
+            // Fast path
+            var existing = Fetch(seq);
+            if (existing != null) return existing;
+
+            if (timeOut < sMinTimeout) timeOut = vDefaultResponseTimeout;
+            var ctx = new Waiter();
+
+            // Register waiter then re-check to close race
+            lock (_waitersLock)
+            {
+                _waiters[seq] = ctx;
+                existing = Fetch(seq);
+                if (existing != null)
+                {
+                    _waiters.Remove(seq);
+                    return existing;
+                }
+            }
+
+            // Await signal or timeout. The waiter must be removed even when the token is
+            // cancelled mid-wait, otherwise a cancelled wait leaks its waiter entry.
+            try
+            {
+                await ctx.WaitForAlertAsync(timeOut, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                lock (_waitersLock)
+                {
+                    _waiters.Remove(seq);
+                }
+            }
+
+            var resp = Fetch(seq);
+            if (resp == null)
+            {
                 throw new SmppResponseTimedOutException();
             }
             return resp;

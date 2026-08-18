@@ -1,14 +1,6 @@
 [assembly:
   System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design",
     "CA1001:TypesThatOwnDisposableFieldsShouldBeDisposable", Scope = "type",
-    Target = "JamaaTech.Smpp.Net.Lib.PDUWaitContext")]
-[assembly:
-  System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design",
-    "CA1001:TypesThatOwnDisposableFieldsShouldBeDisposable", Scope = "type",
-    Target = "JamaaTech.Smpp.Net.Lib.ResponseHandler")]
-[assembly:
-  System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design",
-    "CA1001:TypesThatOwnDisposableFieldsShouldBeDisposable", Scope = "type",
     Target = "JamaaTech.Smpp.Net.Lib.SmppClientSession")]
 [assembly:
   System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Usage", "CA2237:MarkISerializableTypesWithSerializable",

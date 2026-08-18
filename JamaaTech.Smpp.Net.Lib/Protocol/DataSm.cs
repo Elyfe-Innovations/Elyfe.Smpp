@@ -65,7 +65,7 @@ public sealed class DataSm : SingleDestinationPDU
 
   protected override void Parse(ByteBuffer buffer)
   {
-    if (buffer == null) throw new ArgumentNullException("buffer");
+    if (buffer == null) throw new ArgumentNullException(nameof(buffer));
     vServiceType = DecodeCString(buffer, vSmppEncodingService);
     _sourceAddress = SmppAddress.Parse(buffer, vSmppEncodingService);
     vDestinationAddress = SmppAddress.Parse(buffer, vSmppEncodingService);
@@ -87,7 +87,7 @@ public sealed class DataSm : SingleDestinationPDU
 
   public override void SetMessageBytes(byte[] message)
   {
-    if (message == null) throw new ArgumentNullException("message");
+    if (message == null) throw new ArgumentNullException(nameof(message));
     //Check if optional parameter message_payload is present 
     var tlv = Tlv.GetTlvByTag(Tag.message_payload);
     if (tlv == null) throw new InvalidOperationException("Tlv parameter 'message_payload' is not present");

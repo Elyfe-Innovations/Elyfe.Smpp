@@ -59,7 +59,7 @@ public sealed class SubmitSmResp : ResponsePDU
 
   protected override void Parse(ByteBuffer buffer)
   {
-    if (buffer == null) throw new ArgumentNullException("buffer");
+    if (buffer == null) throw new ArgumentNullException(nameof(buffer));
     //Note that the body part may have not been returned by
     //the SMSC if the command status is not 0
     if (buffer.Length == 0) return;

@@ -84,7 +84,7 @@ public class Tlv
 
   public virtual void ParseValue(ByteBuffer buffer, ushort length)
   {
-    if (buffer == null) throw new ArgumentNullException("buffer");
+    if (buffer == null) throw new ArgumentNullException(nameof(buffer));
     if (buffer.Length < length) throw new TlvException();
     var bytes = buffer.Remove(length);
     vRawValue = bytes;
@@ -93,7 +93,7 @@ public class Tlv
 
   public virtual void ParseValue(byte[] bytes, int start, int length)
   {
-    if (bytes == null) throw new ArgumentNullException("bytes");
+    if (bytes == null) throw new ArgumentNullException(nameof(bytes));
     if (length < 1) throw new ArgumentException("Invalid length", "length");
     var tempBytes = new byte[length];
     Array.Copy(bytes, start, tempBytes, 0, length);
@@ -103,7 +103,7 @@ public class Tlv
 
   public void ParseValue(byte[] bytes)
   {
-    if (bytes == null) throw new ArgumentNullException("bytes");
+    if (bytes == null) throw new ArgumentNullException(nameof(bytes));
     ParseValue(bytes, 0, bytes.Length);
   }
 

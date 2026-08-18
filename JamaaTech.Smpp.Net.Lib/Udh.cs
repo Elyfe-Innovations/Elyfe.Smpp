@@ -75,7 +75,7 @@ namespace JamaaTech.Smpp.Net.Lib
         #region Methods
         public static Udh Parse(ByteBuffer buffer, SmppEncodingService smppEncodingService)
         {
-            if (buffer == null) { throw new ArgumentNullException("buffer"); }
+            if (buffer == null) { throw new ArgumentNullException(nameof(buffer)); }
             //There must be at least 3 bytes for UDHL, IEI, IEDL
             if (buffer.Length < 3) { throw new SmppException(SmppErrorCode.ESME_RUNKNOWNERR, "Invalid UDH field"); }
             int length = buffer.Remove(); //UDH Length

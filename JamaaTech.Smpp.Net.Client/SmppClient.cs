@@ -23,12 +23,13 @@ using JamaaTech.Smpp.Net.Lib.Protocol;
 using JamaaTech.Smpp.Net.Lib.Util;
 using JamaaTech.Smpp.Net.Lib.Protocol.Tlv;
 using JamaaTech.Smpp.Net.Lib.Logging;
+using Microsoft.Extensions.Logging;
 
 namespace JamaaTech.Smpp.Net.Client
 {
     public class SmppClient : IDisposable
     {
-        private static readonly global::Common.Logging.ILog _Log = global::Common.Logging.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
+        private readonly ILogger _logger;
 
         #region Variables
         private SmppConnectionProperties vProperties;
@@ -36,7 +37,8 @@ namespace JamaaTech.Smpp.Net.Client
         private SmppClientSession vRecv;
         private Exception vLastException;
         private SmppConnectionState vState;
-        private object vConnSyncRoot;
+        private SemaphoreSlim vConnSemaphore;
+        private Thread vConnThread;
         private System.Threading.Timer vTimer;
         private int vTimeOut;
         private int vAutoReconnectDelay;
@@ -83,11 +85,29 @@ namespace JamaaTech.Smpp.Net.Client
         #endregion
 
         #region Constructors
+        /// <summary>
+        /// Creates a new <see cref="SmppClient"/> that logs through the ambient
+        /// <see cref="SmppLog"/> factory.
+        /// </summary>
         public SmppClient()
+            : this(null)
         {
+        }
+
+        /// <summary>
+        /// Creates a new <see cref="SmppClient"/> that logs through <paramref name="loggerFactory"/>.
+        /// </summary>
+        /// <param name="loggerFactory">
+        /// The factory to log through, or <see langword="null"/> to use the ambient <see cref="SmppLog"/> factory.
+        /// </param>
+        public SmppClient(ILoggerFactory loggerFactory)
+        {
+            _logger = loggerFactory == null
+                ? SmppLog.For<SmppClient>()
+                : loggerFactory.CreateLogger<SmppClient>();
             vProperties = new SmppConnectionProperties();
             vSmppEncodingService = new SmppEncodingService();
-            vConnSyncRoot = new object();
+            vConnSemaphore = new SemaphoreSlim(1, 1);
             vAutoReconnectDelay = 10000;
             vTimeOut = 5000;
             //--
@@ -190,7 +210,7 @@ namespace JamaaTech.Smpp.Net.Client
         /// <param name="timeOut">A value in miliseconds after which the send operation times out</param>
         public virtual void SendMessage(ShortMessage message, int timeOut)
         {
-            if (message == null) { throw new ArgumentNullException("message"); }
+            if (message == null) { throw new ArgumentNullException(nameof(message)); }
 
             //Check if connection is open
             if (vState != SmppConnectionState.Connected)
@@ -202,12 +222,14 @@ namespace JamaaTech.Smpp.Net.Client
 
             foreach (SendSmPDU pdu in message.GetMessagePDUs(vProperties.DefaultEncoding, vSmppEncodingService, destAddress, srcAddress))
             {
-                if (_Log.IsDebugEnabled) _Log.DebugFormat("SendMessage SendSmPDU: {0}", LoggingExtensions.DumpString(pdu, vSmppEncodingService));
+                if (_logger.IsEnabled(LogLevel.Debug))
+                    _logger.LogDebug("SendMessage SendSmPDU: {Pdu}", LoggingExtensions.DumpString(pdu, vSmppEncodingService));
                 ResponsePDU resp = SendPdu(pdu, timeOut);
                 var submitSmResp = resp as SubmitSmResp;
                 if (submitSmResp != null)
                 {
-                    if (_Log.IsDebugEnabled) _Log.DebugFormat("SendMessage Response: {0}", LoggingExtensions.DumpString(resp, vSmppEncodingService));
+                    if (_logger.IsEnabled(LogLevel.Debug))
+                        _logger.LogDebug("SendMessage Response: {Response}", LoggingExtensions.DumpString(resp, vSmppEncodingService));
                     messageId = ((SubmitSmResp)resp).MessageID;
                 }
                 // Set the message id only if we have a valid message id
@@ -266,7 +288,7 @@ namespace JamaaTech.Smpp.Net.Client
         /// <returns>A task representing the asynchronous send message operation</returns>
         public virtual async Task SendMessageAsync(ShortMessage message, int timeout, CancellationToken cancellationToken = default)
         {
-            if (message == null) { throw new ArgumentNullException("message"); }
+            if (message == null) { throw new ArgumentNullException(nameof(message)); }
 
             //Check if connection is open
             if (vState != SmppConnectionState.Connected)
@@ -278,12 +300,14 @@ namespace JamaaTech.Smpp.Net.Client
             
             foreach (SendSmPDU pdu in message.GetMessagePDUs(vProperties.DefaultEncoding, vSmppEncodingService,destAddress, srcAddress))
             {
-                if (_Log.IsDebugEnabled) _Log.DebugFormat("SendMessage SendSmPDU: {0}", LoggingExtensions.DumpString(pdu, vSmppEncodingService));
+                if (_logger.IsEnabled(LogLevel.Debug))
+                    _logger.LogDebug("SendMessage SendSmPDU: {Pdu}", LoggingExtensions.DumpString(pdu, vSmppEncodingService));
                 ResponsePDU resp = await SendPduAsync(pdu, timeout, cancellationToken).ConfigureAwait(false);
                 var submitSmResp = resp as SubmitSmResp;
                 if (submitSmResp != null)
                 {
-                    if (_Log.IsDebugEnabled) _Log.DebugFormat("SendMessage Response: {0}", LoggingExtensions.DumpString(resp, vSmppEncodingService));
+                    if (_logger.IsEnabled(LogLevel.Debug))
+                        _logger.LogDebug("SendMessage Response: {Response}", LoggingExtensions.DumpString(resp, vSmppEncodingService));
                     messageId = ((SubmitSmResp)resp).MessageID;
                 }
                 message.ReceiptedMessageId = messageId;
@@ -305,55 +329,6 @@ namespace JamaaTech.Smpp.Net.Client
             await SendMessageAsync(message, timeout);
         }
 
-        /// <summary>
-        /// Sends message asynchronously to a remote SMPP server
-        /// </summary>
-        /// <param name="message">A message to send</param>
-        /// <param name="timeout">A value in miliseconds after which the send operation times out</param>
-        /// <param name="callback">An <see cref="AsyncCallback"/> delegate</param>
-        /// <param name="state">An object that contains state information for this request</param>
-        /// <returns>An <see cref="IAsyncResult"/> that references the asynchronous send message operation</returns>
-        [Obsolete("Use SendMessageAsync instead. This method is provided for backward compatibility only.")]
-        public virtual IAsyncResult BeginSendMessage(ShortMessage message, int timeout, AsyncCallback callback, object state)
-        {
-            var task = SendMessageAsync(message, timeout);
-            if (callback != null)
-            {
-                task.ContinueWith(t => callback(t), TaskScheduler.Default);
-            }
-            return task;
-        }
-
-        /// <summary>
-        /// Sends message asynchronously to a remote SMPP server
-        /// </summary>
-        /// <param name="message">A message to send</param>
-        /// <param name="callback">An <see cref="AsyncCallback"/> delegate</param>
-        /// <param name="state">An object that contains state information for this request</param>
-        /// <returns>An <see cref="IAsyncResult"/> that references the asynchronous send message operation</returns>
-        [Obsolete("Use SendMessageAsync instead. This method is provided for backward compatibility only.")]
-        public virtual IAsyncResult BeginSendMessage(ShortMessage message, AsyncCallback callback, object state)
-        {
-            int timeout = vTrans.DefaultResponseTimeout;
-            return BeginSendMessage(message, timeout, callback, state);
-        }
-
-        /// <summary>
-        /// Ends a pending asynchronous send message operation
-        /// </summary>
-        /// <param name="result">An <see cref="IAsyncResult"/> that stores state information for this asynchronous operation</param>
-        [Obsolete("Use SendMessageAsync instead. This method is provided for backward compatibility only.")]
-        public virtual void EndSendMessage(IAsyncResult result)
-        {
-            if (result is Task task)
-            {
-                task.GetAwaiter().GetResult();
-            }
-            else
-            {
-                throw new ArgumentException("Invalid async result", nameof(result));
-            }
-        }
 
         /// <summary>
         /// Starts <see cref="SmppClient"/> and immediately connects to a remote SMPP server
@@ -420,9 +395,15 @@ namespace JamaaTech.Smpp.Net.Client
         #region Helper Methods
         private void Open(int timeOut)
         {
-            try
+            // Wait(0) takes the slot only if no other thread is connecting; the loser
+            // then waits for the winner and reports the winner's outcome. A SemaphoreSlim
+            // rather than a Monitor: unlike a lock it is not reentrant, so a nested Open
+            // on the connecting thread waits instead of slipping through, and there is no
+            // release path that can run without a matching acquire.
+            if (vConnSemaphore.Wait(0))
             {
-                if (Monitor.TryEnter(vConnSyncRoot))
+                vConnThread = Thread.CurrentThread;
+                try
                 {
                     //No thread is in a connecting or reconnecting state
                     if (vState != SmppConnectionState.Closed)
@@ -441,25 +422,42 @@ namespace JamaaTech.Smpp.Net.Client
                     try { OpenSession(bindInfo, useSepConn, timeOut); }
                     catch (Exception ex)
                     {
-                        _Log.ErrorFormat("OpenSession: {0}", ex, ex.Message);
+                        _logger.LogError(ex, "OpenSession failed");
                         if (vTraceSwitch.TraceError) { Trace.TraceError(ex.ToString()); }
                         vLastException = ex; throw;
                     }
                     vLastException = null;
                 }
-                else
+                finally
                 {
-                    //Another thread is already in either a connecting or reconnecting state
-                    //Wait until the thread finishes
-                    Monitor.Enter(vConnSyncRoot);
+                    vConnThread = null;
+                    vConnSemaphore.Release();
+                }
+            }
+            else
+            {
+                // Re-entered synchronously from the connecting thread (e.g. ForceConnect
+                // from a ConnectionStateChanged handler raised inside OpenSession). The
+                // semaphore is not reentrant, so waiting here would deadlock; report the
+                // already-open error the inner state check would raise instead.
+                if (ReferenceEquals(vConnThread, Thread.CurrentThread))
+                {
+                    throw new InvalidOperationException("You cannot open while the instance is already connected");
+                }
+
+                //Another thread is already in either a connecting or reconnecting state
+                //Wait until the thread finishes
+                vConnSemaphore.Wait();
+                try
+                {
                     //Now, the thread has finished connecting,
                     //Check on the result if the thread encountered any problem during connection
                     if (vLastException != null) { throw vLastException; }
                 }
-            }
-            finally
-            {
-                Monitor.Exit(vConnSyncRoot);
+                finally
+                {
+                    vConnSemaphore.Release();
+                }
             }
         }
 
@@ -615,8 +613,8 @@ namespace JamaaTech.Smpp.Net.Client
             SingleDestinationPDU pdu = e.Request as SingleDestinationPDU;
             if (pdu == null) { return; }
 
-            if (_Log.IsDebugEnabled)
-                _Log.DebugFormat("Received PDU: {0}", LoggingExtensions.DumpString(pdu, vSmppEncodingService));
+            if (_logger.IsEnabled(LogLevel.Debug))
+                _logger.LogDebug("Received PDU: {Pdu}", LoggingExtensions.DumpString(pdu, vSmppEncodingService));
 
             if (vTraceSwitch.TraceVerbose)
             {
@@ -626,7 +624,7 @@ namespace JamaaTech.Smpp.Net.Client
             try { message = MessageFactory.CreateMessage(pdu); }
             catch (SmppException smppEx)
             {
-                _Log.ErrorFormat("200019:SMPP message decoding failure - {0} - {1} {2}", smppEx, smppEx.ErrorCode, new ByteBuffer(pdu.GetBytes()).DumpString(), smppEx.Message);
+                _logger.LogError(smppEx, "200019:SMPP message decoding failure - {ErrorCode} - {Pdu}", smppEx.ErrorCode, new ByteBuffer(pdu.GetBytes()).DumpString());
                 if (vTraceSwitch.TraceError)
                 {
                     Trace.WriteLine(string.Format(
@@ -640,7 +638,7 @@ namespace JamaaTech.Smpp.Net.Client
             }
             catch (Exception ex)
             {
-                _Log.ErrorFormat("200019:SMPP message decoding failure - {0}", ex, new ByteBuffer(pdu.GetBytes()).DumpString());
+                _logger.LogError(ex, "200019:SMPP message decoding failure - {Pdu}", new ByteBuffer(pdu.GetBytes()).DumpString());
                 if (vTraceSwitch.TraceError)
                 {
                     Trace.WriteLine(string.Format(
@@ -653,8 +651,8 @@ namespace JamaaTech.Smpp.Net.Client
                 return;
             }
 
-            if (message != null && _Log.IsDebugEnabled)
-                _Log.DebugFormat("PduReceived: message: {0}", LoggingExtensions.DumpString(message, vSmppEncodingService));
+            if (message != null && _logger.IsEnabled(LogLevel.Debug))
+                _logger.LogDebug("PduReceived: message: {Message}", LoggingExtensions.DumpString(message, vSmppEncodingService));
 
             if (vTraceSwitch.TraceVerbose)
             {
@@ -737,6 +735,7 @@ namespace JamaaTech.Smpp.Net.Client
             {
                 Shutdown();
                 if (vTimer != null) { vTimer.Dispose(); }
+                if (vConnSemaphore != null) { vConnSemaphore.Dispose(); }
             }
             catch { /*Sielent catch*/ }
         }

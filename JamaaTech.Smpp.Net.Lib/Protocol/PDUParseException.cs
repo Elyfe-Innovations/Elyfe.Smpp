@@ -41,7 +41,7 @@ public class PDUParseException : PDUException
 
   public static void WrapAndThrow(Exception innerException)
   {
-    if (innerException == null) throw new ArgumentNullException("innerException");
+    if (innerException == null) throw new ArgumentNullException(nameof(innerException));
     throw new PDUParseException(SmppErrorCode.ESME_RUNKNOWNERR,
       innerException.Message, innerException);
   }

@@ -56,7 +56,7 @@ public sealed class ByteBuffer
 
   public ByteBuffer(byte[] array)
   {
-    if (array == null) throw new ArgumentNullException("array");
+    if (array == null) throw new ArgumentNullException(nameof(array));
     //Create array buffer with capacity equal to the array size
     //Or default capacity if the array size is less than 32
     vCapacity = array.Length < MIN_CAPACITY ? DEFAULT_CAPACITY : array.Length;
@@ -66,7 +66,7 @@ public sealed class ByteBuffer
 
   public ByteBuffer(byte[] array, int capacity)
   {
-    if (array == null) throw new ArgumentNullException("array");
+    if (array == null) throw new ArgumentNullException(nameof(array));
     //Create array buffer with capacity equal to the specified size
     //If capacity is less than the array size or 32, use default size
     if (capacity < array.Length) capacity = array.Length;
@@ -113,20 +113,20 @@ public sealed class ByteBuffer
 
   public void Append(ByteBuffer buffer)
   {
-    if (buffer == null) throw new ArgumentNullException("buffer");
+    if (buffer == null) throw new ArgumentNullException(nameof(buffer));
     if (buffer.Length <= 0) return;
     Append(buffer.vArrayBuffer, buffer.vNextPosition - buffer.vLength, buffer.vLength);
   }
 
   public void Append(byte[] bytes)
   {
-    if (bytes == null) throw new ArgumentNullException("bytes");
+    if (bytes == null) throw new ArgumentNullException(nameof(bytes));
     Append(bytes, 0, bytes.Length);
   }
 
   public void Append(byte[] bytes, int start, int length)
   {
-    if (bytes == null) throw new ArgumentNullException("bytes");
+    if (bytes == null) throw new ArgumentNullException(nameof(bytes));
     if (Reserved < length) RealocateBuffer(length);
     Array.Copy(bytes, start, vArrayBuffer, vNextPosition, length);
     vNextPosition += length;

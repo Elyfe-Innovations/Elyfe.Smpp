@@ -1,12 +1,12 @@
-﻿using JamaaTech.Smpp.Net.Lib.Protocol.Tlv;
+using JamaaTech.Smpp.Net.Lib.Protocol.Tlv;
+using Microsoft.Extensions.Logging;
 using System.Text;
 
 namespace JamaaTech.Smpp.Net.Lib.Logging;
 
 public static class LoggingExtensions
 {
-  private static readonly global::Common.Logging.ILog _Log =
-    Common.Logging.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
+  private static readonly ILogger Logger = SmppLog.For(typeof(LoggingExtensions));
 
   public static Func<object, SmppEncodingService, string> DumpString { get; set; } = DumpStringDefault;
 
@@ -18,8 +18,7 @@ public static class LoggingExtensions
     }
     catch (Exception ex)
     {
-      if (_Log.IsErrorEnabled)
-        _Log.Error(ex);
+      Logger.LogError(ex, "Failed to dump {ObjectType} for logging", obj?.GetType().Name);
       return null;
     }
   }
@@ -27,7 +26,7 @@ public static class LoggingExtensions
   public static string DumpStringDefault(object obj, SmppEncodingService encodingService = null)
   {
     var sb = new StringBuilder();
-    sb.AppendFormat("{0} -- ", obj.GetType().Name);
+    sb.Append(obj.GetType().Name).Append(" -- ");
 
     foreach (var property in obj.GetType().GetProperties())
     {
@@ -39,13 +38,14 @@ public static class LoggingExtensions
       }
       catch
       {
+        // A property getter that throws must not break the dump; leave the placeholder.
       }
 
       if (value is byte[])
         value = BytesToString(value as byte[], encodingService);
       else if (value is TlvCollection) value = TlvCollectionToString(value as TlvCollection, encodingService);
 
-      sb.AppendFormat("{0}:{1} ", property.Name, value);
+      sb.Append(property.Name).Append(':').Append(value).Append(' ');
     }
 
     return sb.ToString();
@@ -56,7 +56,7 @@ public static class LoggingExtensions
     var tags = new StringBuilder();
     tags.Append("[");
     foreach (var tlv in tlvCollection)
-      tags.AppendFormat("{0}:{1} ", tlv.Tag, BytesToString(tlv.RawValue, encodingService));
+      tags.Append(tlv.Tag).Append(':').Append(BytesToString(tlv.RawValue, encodingService)).Append(' ');
     tags.Append("]");
 
     return tags.ToString();
@@ -79,9 +79,6 @@ public static class LoggingExtensions
 
   private static string BytesToStringHex(byte[] value)
   {
-    var ba = value;
-    var hex = new StringBuilder(ba.Length * 2);
-    foreach (var b in ba) hex.AppendFormat("{0:x2}", b);
-    return hex.ToString();
+    return Compat.EncodingCompat.ToHexString(value);
   }
 }

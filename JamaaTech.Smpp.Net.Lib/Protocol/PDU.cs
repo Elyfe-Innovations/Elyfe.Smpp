@@ -59,7 +59,7 @@ public abstract class PDU
   public static GenericNack GenericNack(PDUHeader header, SmppErrorCode errorCode,
     SmppEncodingService smppEncodingService)
   {
-    if (header == null) throw new ArgumentNullException("header");
+    if (header == null) throw new ArgumentNullException(nameof(header));
     var gNack = (GenericNack)CreatePDU(header, smppEncodingService);
     gNack.Header.ErrorCode = errorCode;
     return gNack;
@@ -94,7 +94,7 @@ public abstract class PDU
 
   public void SetBodyData(ByteBuffer buffer)
   {
-    if (buffer == null) throw new ArgumentNullException("buffer");
+    if (buffer == null) throw new ArgumentNullException(nameof(buffer));
     try
     {
       Parse(buffer);
@@ -111,7 +111,7 @@ public abstract class PDU
 
   public static PDU CreatePDU(PDUHeader header, SmppEncodingService smppEncodingService)
   {
-    if (header == null) throw new ArgumentNullException("header");
+    if (header == null) throw new ArgumentNullException(nameof(header));
     switch (header.CommandType)
     {
       case CommandType.BindReceiver:

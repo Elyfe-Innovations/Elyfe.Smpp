@@ -60,7 +60,7 @@ public class BindResponse : ResponsePDU
 
   protected override void Parse(ByteBuffer buffer)
   {
-    if (buffer == null) throw new ArgumentNullException("buffer");
+    if (buffer == null) throw new ArgumentNullException(nameof(buffer));
     //If Error code is not zero, buffer.Length may be zero
     //This may happen because the SMSC may not return the system_id field
     //if the origianl bind request contained an error.

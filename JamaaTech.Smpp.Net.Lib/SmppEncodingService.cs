@@ -29,7 +29,7 @@ public class SmppEncodingService
 
   public virtual uint GetIntFromBytes(byte[] data)
   {
-    if (data == null) throw new ArgumentNullException("data");
+    if (data == null) throw new ArgumentNullException(nameof(data));
     if (data.Length != 4) throw new ArgumentException("Array length must be equal to four(4)", "data");
     uint result = 0x00000000;
     result |= data[0];
@@ -52,7 +52,7 @@ public class SmppEncodingService
 
   public virtual ushort GetShortFromBytes(byte[] data)
   {
-    if (data == null) throw new ArgumentNullException("data");
+    if (data == null) throw new ArgumentNullException(nameof(data));
     if (data.Length != 2) throw new ArgumentException("Array length must be equal to two (2)", "data");
     ushort result = 0x0000;
     result |= data[0];
@@ -68,7 +68,7 @@ public class SmppEncodingService
 
   public virtual byte[] GetBytesFromCString(string cStr, DataCoding dataCoding, bool nullTerminated = true)
   {
-    if (cStr == null) throw new ArgumentNullException("cStr");
+    if (cStr == null) throw new ArgumentNullException(nameof(cStr));
     if (cStr.Length == 0) return new byte[] { 0x00 };
     byte[] bytes = null;
     switch (dataCoding)
@@ -110,7 +110,7 @@ public class SmppEncodingService
 
   public virtual string GetCStringFromBytes(byte[] data, DataCoding dataCoding)
   {
-    if (data == null) throw new ArgumentNullException("data");
+    if (data == null) throw new ArgumentNullException(nameof(data));
     if (data.Length < 1) throw new ArgumentException("Array cannot be empty", "data");
     if (data[data.Length - 1] != 0x00)
       throw new ArgumentException("CString must be terminated with a null charactor", "data");
@@ -145,7 +145,7 @@ public class SmppEncodingService
 
   public virtual byte[] GetBytesFromString(string cStr, DataCoding dataCoding)
   {
-    if (cStr == null) throw new ArgumentNullException("cStr");
+    if (cStr == null) throw new ArgumentNullException(nameof(cStr));
     if (cStr.Length == 0) return new byte[] { 0x00 };
     byte[] bytes = null;
     switch (dataCoding)
@@ -176,7 +176,7 @@ public class SmppEncodingService
 
   public virtual string GetStringFromBytes(byte[] data, DataCoding dataCoding)
   {
-    if (data == null) throw new ArgumentNullException("data");
+    if (data == null) throw new ArgumentNullException(nameof(data));
     string result = null;
     switch (dataCoding)
     {

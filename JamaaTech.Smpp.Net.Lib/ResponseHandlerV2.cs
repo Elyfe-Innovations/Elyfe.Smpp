@@ -10,7 +10,7 @@ namespace JamaaTech.Smpp.Net.Lib
         #region Variables
         private int vDefaultResponseTimeout;
         private IDictionary<uint, ResponsePDU> vResponseQueue;
-        private IDictionary<uint, object> vWaitingQueue;
+        private IDictionary<uint, PDUWaitContextAsync> vWaitingQueue;
         private readonly object vResponseLock = new object();
         private readonly object vWaitingLock = new object();
         // Minimum enforced timeout (was hard-coded 5000). Made adjustable for testing.
@@ -38,7 +38,7 @@ namespace JamaaTech.Smpp.Net.Lib
         public ResponseHandlerV2()
         {
             vDefaultResponseTimeout = sMinTimeout; //Default min
-            vWaitingQueue = new Dictionary<uint, object>(32);
+            vWaitingQueue = new Dictionary<uint, PDUWaitContextAsync>(32);
             vResponseQueue = new Dictionary<uint, ResponsePDU>(32);
         }
         #endregion
@@ -75,21 +75,12 @@ namespace JamaaTech.Smpp.Net.Lib
             // Then check for waiting contexts and notify them
             lock (vWaitingLock)
             {
-                object waitContext;
+                PDUWaitContextAsync waitContext;
                 if (vWaitingQueue.TryGetValue(sequenceNumber, out waitContext))
                 {
-                    if (waitContext is PDUWaitContext syncContext)
-                    {
-                        syncContext.AlertResponseReceived();
-                        // Always remove after signaling (success or timeout) to avoid leaks
-                        vWaitingQueue.Remove(sequenceNumber);
-                    }
-                    else if (waitContext is PDUWaitContextAsync asyncContext)
-                    {
-                        asyncContext.AlertResponseReceived(pdu);
-                        // Remove from waiting queue since it's been processed
-                        vWaitingQueue.Remove(sequenceNumber);
-                    }
+                    waitContext.AlertResponseReceived(pdu);
+                    // Always remove after signaling (success or timeout) to avoid leaks
+                    vWaitingQueue.Remove(sequenceNumber);
                 }
             }
         }
@@ -109,7 +100,12 @@ namespace JamaaTech.Smpp.Net.Lib
             
             if (timeOut < sMinTimeout) { timeOut = vDefaultResponseTimeout; }
             int effectiveTimeout = checked(timeOut + SchedulingSlackMs);
-            PDUWaitContext waitContext = new PDUWaitContext(sequenceNumber, effectiveTimeout);
+
+            // The synchronous and asynchronous paths share one wait context, so a response
+            // signals both the same way. This one is TaskCompletionSource-based; the
+            // AutoResetEvent variant it replaced is gone.
+            var tcs = new TaskCompletionSource<ResponsePDU>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var waitContext = new PDUWaitContextAsync(sequenceNumber, effectiveTimeout, tcs, CancellationToken.None);
             
             // Register waiter (no nested locks with response lock)
             lock (vWaitingLock)
@@ -122,6 +118,7 @@ namespace JamaaTech.Smpp.Net.Lib
             if (resp != null)
             {
                 // Remove waiter and return immediately
+                waitContext.Dispose();
                 lock (vWaitingLock)
                 {
                     vWaitingQueue.Remove(sequenceNumber);
@@ -129,18 +126,26 @@ namespace JamaaTech.Smpp.Net.Lib
                 return resp;
             }
             
-            // Wait for the response
-            bool responseReceived = waitContext.WaitForAlert();
-            
-            // Fetch the response after waiting
-            resp = FetchResponse(sequenceNumber);
-            
-            // Clean up the waiting queue entry if still present
-            lock (vWaitingLock)
+            // Wait for the response. A timeout surfaces as SmppResponseTimedOutException,
+            // which is swallowed here so a response queued by a racing Handle still wins.
+            try
             {
-                vWaitingQueue.Remove(sequenceNumber);
+                tcs.Task.GetAwaiter().GetResult();
+            }
+            catch (SmppResponseTimedOutException)
+            {
+            }
+            finally
+            {
+                // Clean up the waiting queue entry if still present
+                lock (vWaitingLock)
+                {
+                    vWaitingQueue.Remove(sequenceNumber);
+                }
             }
 
+            // Fetch the response after waiting
+            resp = FetchResponse(sequenceNumber);
             if (resp == null)
             {
                 throw new SmppResponseTimedOutException();

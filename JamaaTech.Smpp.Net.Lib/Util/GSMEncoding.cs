@@ -20,7 +20,7 @@ public class GSMEncoding : System.Text.Encoding
   {
     var byteCount = 0;
 
-    if (chars == null) throw new ArgumentNullException("chars");
+    if (chars == null) throw new ArgumentNullException(nameof(chars));
     if (index < 0 || index > chars.Length) throw new ArgumentOutOfRangeException("index");
     if (count < 0 || count > chars.Length - index) throw new ArgumentOutOfRangeException("count");
 
@@ -36,8 +36,8 @@ public class GSMEncoding : System.Text.Encoding
     var byteCount = 0;
 
     // Validate the parameters.
-    if (chars == null) throw new ArgumentNullException("chars");
-    if (bytes == null) throw new ArgumentNullException("bytes");
+    if (chars == null) throw new ArgumentNullException(nameof(chars));
+    if (bytes == null) throw new ArgumentNullException(nameof(bytes));
     if (charIndex < 0 || charIndex > chars.Length) throw new ArgumentOutOfRangeException("charIndex");
     if (charCount < 0 || charCount > chars.Length - charIndex) throw new ArgumentOutOfRangeException("charCount");
     if (byteIndex < 0 || byteIndex > bytes.Length) throw new ArgumentOutOfRangeException("byteIndex");
@@ -60,7 +60,7 @@ public class GSMEncoding : System.Text.Encoding
   {
     var charCount = 0;
 
-    if (bytes == null) throw new ArgumentNullException("bytes");
+    if (bytes == null) throw new ArgumentNullException(nameof(bytes));
     if (index < 0 || index > bytes.Length) throw new ArgumentOutOfRangeException("index");
     if (count < 0 || count > bytes.Length - index) throw new ArgumentOutOfRangeException("count");
 
@@ -91,8 +91,8 @@ public class GSMEncoding : System.Text.Encoding
     var charCount = 0;
 
     // Validate the parameters.
-    if (bytes == null) throw new ArgumentNullException("bytes");
-    if (chars == null) throw new ArgumentNullException("chars");
+    if (bytes == null) throw new ArgumentNullException(nameof(bytes));
+    if (chars == null) throw new ArgumentNullException(nameof(chars));
     if (byteIndex < 0 || byteIndex > bytes.Length) throw new ArgumentOutOfRangeException("byteIndex");
     if (byteCount < 0 || byteCount > bytes.Length - byteIndex) throw new ArgumentOutOfRangeException("byteCount");
     if (charIndex < 0 || charIndex > chars.Length) throw new ArgumentOutOfRangeException("charIndex");

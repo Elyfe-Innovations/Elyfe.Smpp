@@ -29,7 +29,7 @@ namespace JamaaTech.Smpp.Net.Lib
         #region Constructors
         public PDUTransmitter(TcpIpSession session)
         {
-            if (session == null) { throw new ArgumentNullException("session"); }
+            if (session == null) { throw new ArgumentNullException(nameof(session)); }
             vTcpIpSession = session;
         }
         #endregion
@@ -37,14 +37,14 @@ namespace JamaaTech.Smpp.Net.Lib
         #region Methods
         public void Send(PDU pdu)
         {
-            if (pdu == null) { throw new ArgumentNullException("pdu"); }
+            if (pdu == null) { throw new ArgumentNullException(nameof(pdu)); }
             byte[] bytesToSend = pdu.GetBytes();
             vTcpIpSession.Send(bytesToSend);
         }
 
         public async Task SendAsync(PDU pdu, CancellationToken cancellationToken = default)
         {
-            if (pdu == null) { throw new ArgumentNullException("pdu"); }
+            if (pdu == null) { throw new ArgumentNullException(nameof(pdu)); }
             byte[] bytesToSend = pdu.GetBytes();
             await vTcpIpSession.SendAsync(bytesToSend, cancellationToken).ConfigureAwait(false);
         }

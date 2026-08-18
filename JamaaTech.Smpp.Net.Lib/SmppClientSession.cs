@@ -15,8 +15,10 @@
  ************************************************************************/
 
 using System.Threading.Tasks;
+using JamaaTech.Smpp.Net.Lib.Logging;
 using JamaaTech.Smpp.Net.Lib.Networking;
 using JamaaTech.Smpp.Net.Lib.Protocol;
+using Microsoft.Extensions.Logging;
 using System.Timers;
 using System.Net;
 using System.Diagnostics;
@@ -26,7 +28,7 @@ namespace JamaaTech.Smpp.Net.Lib
 {
     public class SmppClientSession
     {
-        private static readonly global::Common.Logging.ILog _Log = global::Common.Logging.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
+        private static readonly ILogger Logger = SmppLog.For(typeof(SmppClientSession));
 
         #region Variables
         private System.Timers.Timer vTimer;
@@ -169,7 +171,7 @@ namespace JamaaTech.Smpp.Net.Lib
                 try { return vRespHandler.WaitResponse(pdu, timeout); }
                 catch (SmppResponseTimedOutException)
                 {
-                    _Log.Error("200016:PDU send operation timed out;");
+                    Logger.LogError("200016:PDU send operation timed out");
                     if (vTraceSwitch.TraceWarning)
                     { Trace.WriteLine("200016:PDU send operation timed out;"); }
                     throw;
@@ -181,14 +183,14 @@ namespace JamaaTech.Smpp.Net.Lib
 
         private void SendPduBase(PDU pdu)
         {
-            if (pdu == null) { throw new ArgumentNullException("pdu"); }
+            if (pdu == null) { throw new ArgumentNullException(nameof(pdu)); }
             if (!(CheckState(pdu) && (pdu.AllowedSource & SmppEntityType.ESME) == SmppEntityType.ESME))
             { throw new SmppException(SmppErrorCode.ESME_RINVBNDSTS, "Incorrect bind status for given command"); }
             try { vTrans.Send(pdu); }
             catch (Exception ex)
             {
                 ByteBuffer buffer = new ByteBuffer(pdu.GetBytes());
-                _Log.ErrorFormat("200022:PDU send operation failed - {0}", ex, buffer.DumpString());
+                Logger.LogError(ex, "200022:PDU send operation failed - {Pdu}", buffer.DumpString());
                 if (vTraceSwitch.TraceInfo)
                 {
                     Trace.WriteLine(string.Format(
@@ -200,7 +202,7 @@ namespace JamaaTech.Smpp.Net.Lib
 
         private async Task SendPduBaseAsync(PDU pdu, CancellationToken cancellationToken = default)
         {
-            if (pdu == null) { throw new ArgumentNullException("pdu"); }
+            if (pdu == null) { throw new ArgumentNullException(nameof(pdu)); }
             if (!(CheckState(pdu) && (pdu.AllowedSource & SmppEntityType.ESME) == SmppEntityType.ESME))
             { throw new SmppException(SmppErrorCode.ESME_RINVBNDSTS, "Incorrect bind status for given command"); }
             try
@@ -210,7 +212,7 @@ namespace JamaaTech.Smpp.Net.Lib
             catch (Exception ex)
             {
                 ByteBuffer buffer = new ByteBuffer(pdu.GetBytes());
-                _Log.ErrorFormat("200022:PDU send operation failed - {0}", ex, buffer.DumpString());
+                Logger.LogError(ex, "200022:PDU send operation failed - {Pdu}", buffer.DumpString());
                 if (vTraceSwitch.TraceInfo)
                 {
                     Trace.WriteLine(string.Format(
@@ -227,12 +229,11 @@ namespace JamaaTech.Smpp.Net.Lib
             {
                 try
                 {
-                    return vRespHandler.WaitResponse(pdu, timeout);
-                    //return await vRespHandler.WaitResponseAsync(pdu, timeout, cancellationToken).ConfigureAwait(false);
+                    return await vRespHandler.WaitResponseAsync(pdu, timeout, cancellationToken).ConfigureAwait(false);
                 }
                 catch (SmppResponseTimedOutException)
                 {
-                    _Log.Error("200016:PDU send operation timed out;");
+                    Logger.LogError("200016:PDU send operation timed out");
                     if (vTraceSwitch.TraceWarning)
                     { Trace.WriteLine("200016:PDU send operation timed out;"); }
                     throw;
@@ -249,35 +250,6 @@ namespace JamaaTech.Smpp.Net.Lib
             return await SendPduAsync(pdu, timeout);
         }
 
-        [Obsolete("Use SendPduAsync instead. This method is provided for backward compatibility only.")]
-        public IAsyncResult BeginSendPdu(RequestPDU pdu, int timeout, AsyncCallback callback, object @object)
-        {
-            var task = SendPduAsync(pdu, timeout);
-            if (callback != null)
-            {
-                task.ContinueWith(t => callback(t), TaskScheduler.Default);
-            }
-            return task;
-        }
-
-        [Obsolete("Use SendPduAsync instead. This method is provided for backward compatibility only.")]
-        public IAsyncResult BeginSendPdu(RequestPDU pdu, AsyncCallback callback, object @object)
-        {
-            int timeout = 0;
-            lock (vSyncRoot) { timeout = vDefaultResponseTimeout; }
-            return BeginSendPdu(pdu, timeout, callback, @object);
-        }
-
-        [Obsolete("Use SendPduAsync instead. This method is provided for backward compatibility only.")]
-        public ResponsePDU EndSendPdu(IAsyncResult result)
-        {
-            if (result is Task<ResponsePDU> task)
-            {
-                return task.GetAwaiter().GetResult();
-            }
-            throw new ArgumentException("Invalid async result", nameof(result));
-        }
-
         public void EndSession()
         {
             EndSession(SmppSessionCloseReason.EndSessionCalled, null);
@@ -288,7 +260,7 @@ namespace JamaaTech.Smpp.Net.Lib
             try
             {
                 TcpIpSession tcpIpSession = null;
-                if (bindInfo == null) { throw new ArgumentNullException("bindInfo"); }
+                if (bindInfo == null) { throw new ArgumentNullException(nameof(bindInfo)); }
                 //--
                 tcpIpSession = CreateTcpIpSession(bindInfo);
                 //--
@@ -307,7 +279,7 @@ namespace JamaaTech.Smpp.Net.Lib
             }
             catch (Exception ex)
             {
-                _Log.ErrorFormat("200017:SMPP bind operation failed: {0}", ex, ex.Message);
+                Logger.LogError(ex, "200017:SMPP bind operation failed");
                 if (vTraceSwitch.TraceInfo)
                 {
                     string traceMessage = "200017:SMPP bind operation failed:";
@@ -553,7 +525,7 @@ namespace JamaaTech.Smpp.Net.Lib
             SmppSessionClosedEventArgs e = new SmppSessionClosedEventArgs(reason, exception);
             foreach (EventHandler<SmppSessionClosedEventArgs> del in SessionClosed.GetInvocationList())
             {
-                Task.Factory.StartNew(() =>
+                Task.Run(() =>
                 {
                     try
                     {
@@ -562,9 +534,9 @@ namespace JamaaTech.Smpp.Net.Lib
                     catch (Exception ex)
                     {
                         // Log the exception but don't let it propagate to avoid crashing the application
-                        _Log.ErrorFormat("Exception in SessionClosed event handler: {0}", ex, ex.Message);
+                        Logger.LogError(ex, "Exception in SessionClosed event handler");
                     }
-                }, TaskCreationOptions.DenyChildAttach);
+                });
             }
         }
 

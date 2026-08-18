@@ -66,7 +66,7 @@ public sealed class QuerySm : SmOperationPDU
 
   protected override void Parse(ByteBuffer buffer)
   {
-    if (buffer == null) throw new ArgumentNullException("buffer");
+    if (buffer == null) throw new ArgumentNullException(nameof(buffer));
     vMessageID = DecodeCString(buffer, vSmppEncodingService);
     _sourceAddress = SmppAddress.Parse(buffer, vSmppEncodingService);
     //This pdu has no option parameters

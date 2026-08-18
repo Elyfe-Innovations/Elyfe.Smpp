@@ -41,7 +41,7 @@ public class SmppBindException : SmppException
 
   public new static void WrapAndThrow(Exception innerException)
   {
-    if (innerException == null) throw new ArgumentNullException("innerException");
+    if (innerException == null) throw new ArgumentNullException(nameof(innerException));
     throw new SmppBindException(innerException);
   }
 
