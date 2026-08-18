@@ -74,6 +74,12 @@ namespace JamaaTech.Smpp.Net.Lib.Util
             {
                 if (vRunning) { return; } //If this component is already running, do nothing
 
+                // A stop that timed out leaves its worker still running (vRunningTask is
+                // kept non-null for exactly this check). Refuse to start a second worker
+                // until the previous one has actually exited, otherwise two work loops
+                // overlap (e.g. two readers on one socket).
+                if (vRunningTask != null && !vRunningTask.IsCompleted) { return; }
+
                 // Mark as running before the work loop starts so concurrent callers cannot
                 // start multiple loops against the same component.
                 vRunning = true;
@@ -176,10 +182,10 @@ namespace JamaaTech.Smpp.Net.Lib.Util
             {
                 lock (vSyncRoot)
                 {
-                    // Only the currently-registered worker may clear the running state. A
-                    // stop that times out (or a cancelled StopAsync) leaves the old worker
-                    // running; a later Start swaps in a new task, and the old worker's
-                    // finally must not clobber the new one's state.
+                    // Only the currently-registered worker may clear the running state.
+                    // Start() refuses to launch a new worker while this one is alive, so
+                    // this guard is defense-in-depth against any path that replaces
+                    // vRunningTask before this worker has exited.
                     if (vRunningTask != null && Task.CurrentId == vRunningTask.Id)
                     {
                         vRunning = false;
@@ -230,10 +236,12 @@ namespace JamaaTech.Smpp.Net.Lib.Util
         {
             lock (vSyncRoot)
             {
-                // The work loop clears these in its finally block, but it may have timed
-                // out above, in which case the component is still reported as stopped.
+                // The work loop clears vRunning in its finally block, but it may have
+                // timed out above, in which case the component is still reported as
+                // stopped. vRunningTask is deliberately kept: Start() checks it to refuse
+                // launching an overlapping worker, and the worker's finally nulls it once
+                // it actually exits.
                 vRunning = false;
-                vRunningTask = null;
                 vCancellation?.Dispose();
                 vCancellation = null;
             }
