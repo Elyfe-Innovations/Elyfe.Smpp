@@ -38,6 +38,7 @@ namespace JamaaTech.Smpp.Net.Client
         private Exception vLastException;
         private SmppConnectionState vState;
         private SemaphoreSlim vConnSemaphore;
+        private Thread vConnThread;
         private System.Threading.Timer vTimer;
         private int vTimeOut;
         private int vAutoReconnectDelay;
@@ -401,6 +402,7 @@ namespace JamaaTech.Smpp.Net.Client
             // release path that can run without a matching acquire.
             if (vConnSemaphore.Wait(0))
             {
+                vConnThread = Thread.CurrentThread;
                 try
                 {
                     //No thread is in a connecting or reconnecting state
@@ -428,11 +430,21 @@ namespace JamaaTech.Smpp.Net.Client
                 }
                 finally
                 {
+                    vConnThread = null;
                     vConnSemaphore.Release();
                 }
             }
             else
             {
+                // Re-entered synchronously from the connecting thread (e.g. ForceConnect
+                // from a ConnectionStateChanged handler raised inside OpenSession). The
+                // semaphore is not reentrant, so waiting here would deadlock; report the
+                // already-open error the inner state check would raise instead.
+                if (ReferenceEquals(vConnThread, Thread.CurrentThread))
+                {
+                    throw new InvalidOperationException("You cannot open while the instance is already connected");
+                }
+
                 //Another thread is already in either a connecting or reconnecting state
                 //Wait until the thread finishes
                 vConnSemaphore.Wait();

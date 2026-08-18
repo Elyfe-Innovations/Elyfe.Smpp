@@ -212,17 +212,23 @@ namespace JamaaTech.Smpp.Net.Lib
                 }
             }
 
-            // Await signal or timeout
-            await ctx.WaitForAlertAsync(timeOut, cancellationToken).ConfigureAwait(false);
-
-            var resp = Fetch(seq);
-            if (resp == null)
+            // Await signal or timeout. The waiter must be removed even when the token is
+            // cancelled mid-wait, otherwise a cancelled wait leaks its waiter entry.
+            try
             {
-                // Ensure removal if timeout path taken
+                await ctx.WaitForAlertAsync(timeOut, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
                 lock (_waitersLock)
                 {
                     _waiters.Remove(seq);
                 }
+            }
+
+            var resp = Fetch(seq);
+            if (resp == null)
+            {
                 throw new SmppResponseTimedOutException();
             }
             return resp;
