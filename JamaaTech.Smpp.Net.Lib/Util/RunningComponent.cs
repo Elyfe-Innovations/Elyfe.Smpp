@@ -176,9 +176,16 @@ namespace JamaaTech.Smpp.Net.Lib.Util
             {
                 lock (vSyncRoot)
                 {
-                    vRunning = false;
-                    vRunningTask = null;
-                    vStopOnNextCycle = true;
+                    // Only the currently-registered worker may clear the running state. A
+                    // stop that times out (or a cancelled StopAsync) leaves the old worker
+                    // running; a later Start swaps in a new task, and the old worker's
+                    // finally must not clobber the new one's state.
+                    if (vRunningTask != null && Task.CurrentId == vRunningTask.Id)
+                    {
+                        vRunning = false;
+                        vRunningTask = null;
+                        vStopOnNextCycle = true;
+                    }
                 }
             }
         }
