@@ -49,20 +49,17 @@
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <MinVerTagPrefix>v</MinVerTagPrefix>
     <PackageReleaseNotes>
-      v2026.1.1
-
-      - fix: ResponseHandlerV2 delivered a response without removing it, so the response
-        queue grew for the whole life of a session; delivery is now once-only and
-        responses nobody claims expire instead of accumulating
-      - fix: a response arriving between a waiter's check and its wait could be missed,
-        leaving the caller blocked until its timeout
-
       v2026.1.0
 
       - BREAKING: dropped net48 and netstandard2.0; now targets netstandard2.1 and net10.0
       - BREAKING: removed the bundled Common.Logging shim; logging is Microsoft.Extensions.Logging only
       - BREAKING: removed the APM BeginSendPdu/EndSendPdu and BeginSendMessage/EndSendMessage pairs
       - changed: the library depends on Microsoft.Extensions.Logging.Abstractions only
+      - fix: ResponseHandlerV2 delivered a response without removing it, so the response
+        queue grew for the whole life of a session; delivery is now once-only and
+        responses nobody claims expire instead of accumulating
+      - fix: a response arriving between a waiter's check and its wait could be missed,
+        leaving the caller blocked until its timeout
       - fix: TcpIpSession send/receive now honour the CancellationToken they accept
       - improve: package versions managed centrally; SourceLink now comes from the SDK
     </PackageReleaseNotes>
