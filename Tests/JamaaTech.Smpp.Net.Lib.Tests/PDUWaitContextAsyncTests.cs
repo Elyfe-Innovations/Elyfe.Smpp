@@ -10,11 +10,15 @@ namespace JamaaTech.Smpp.Net.Lib.Tests
 {
     public class PDUWaitContextAsyncTests
     {
+        // Long enough that the timeout timer cannot fire while a test that is not about
+        // timeouts is still running, even on a loaded CI runner.
+        private const int NoTimeout = 60_000;
+
         [Fact]
         public async Task AlertResponseReceived_CompletesTask()
         {
             var tcs = new TaskCompletionSource<ResponsePDU>();
-            var context = new PDUWaitContextAsync(123, 1000, tcs, CancellationToken.None);
+            var context = new PDUWaitContextAsync(123, NoTimeout, tcs, CancellationToken.None);
             var response = new TestResponsePDU(123);
 
             // Alert that response was received
@@ -30,7 +34,7 @@ namespace JamaaTech.Smpp.Net.Lib.Tests
         public async Task AlertResponseReceived_MultipleCalls_OnlyFirstSucceeds()
         {
             var tcs = new TaskCompletionSource<ResponsePDU>();
-            var context = new PDUWaitContextAsync(123, 1000, tcs, CancellationToken.None);
+            var context = new PDUWaitContextAsync(123, NoTimeout, tcs, CancellationToken.None);
             var response1 = new TestResponsePDU(123);
             var response2 = new TestResponsePDU(123);
 
@@ -62,7 +66,7 @@ namespace JamaaTech.Smpp.Net.Lib.Tests
         {
             var cts = new CancellationTokenSource();
             var tcs = new TaskCompletionSource<ResponsePDU>();
-            var context = new PDUWaitContextAsync(123, 1000, tcs, cts.Token);
+            var context = new PDUWaitContextAsync(123, NoTimeout, tcs, cts.Token);
 
             // Cancel the operation
             await cts.CancelAsync();
@@ -76,7 +80,7 @@ namespace JamaaTech.Smpp.Net.Lib.Tests
         public void Dispose_CancelsTask()
         {
             var tcs = new TaskCompletionSource<ResponsePDU>();
-            var context = new PDUWaitContextAsync(123, 1000, tcs, CancellationToken.None);
+            var context = new PDUWaitContextAsync(123, NoTimeout, tcs, CancellationToken.None);
 
             // Dispose the context
             context.Dispose();
@@ -90,7 +94,7 @@ namespace JamaaTech.Smpp.Net.Lib.Tests
         public async Task ConcurrentAccess_ThreadSafe()
         {
             var tcs = new TaskCompletionSource<ResponsePDU>();
-            var context = new PDUWaitContextAsync(123, 1000, tcs, CancellationToken.None);
+            var context = new PDUWaitContextAsync(123, NoTimeout, tcs, CancellationToken.None);
             var response = new TestResponsePDU(123);
             var exceptions = new System.Collections.Concurrent.ConcurrentBag<Exception>();
 
@@ -143,7 +147,7 @@ namespace JamaaTech.Smpp.Net.Lib.Tests
         {
             var cts = new CancellationTokenSource();
             var tcs = new TaskCompletionSource<ResponsePDU>();
-            var context = new PDUWaitContextAsync(123, 1000, tcs, cts.Token);
+            var context = new PDUWaitContextAsync(123, NoTimeout, tcs, cts.Token);
             var response = new TestResponsePDU(123);
 
             // Send response before cancellation
@@ -161,7 +165,7 @@ namespace JamaaTech.Smpp.Net.Lib.Tests
         public void MultipleDispose_NoException()
         {
             var tcs = new TaskCompletionSource<ResponsePDU>();
-            var context = new PDUWaitContextAsync(123, 1000, tcs, CancellationToken.None);
+            var context = new PDUWaitContextAsync(123, NoTimeout, tcs, CancellationToken.None);
 
             // Multiple dispose calls should not throw
             context.Dispose();
@@ -175,7 +179,7 @@ namespace JamaaTech.Smpp.Net.Lib.Tests
         public void Properties_ReturnCorrectValues()
         {
             var tcs = new TaskCompletionSource<ResponsePDU>();
-            var context = new PDUWaitContextAsync(123, 1000, tcs, CancellationToken.None);
+            var context = new PDUWaitContextAsync(123, NoTimeout, tcs, CancellationToken.None);
 
             Assert.Equal(123u, context.SequenceNumber);
             Assert.False(context.Completed);
