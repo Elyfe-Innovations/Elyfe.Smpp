@@ -15,7 +15,7 @@
 
 ## Overview
 
-The `SmppClient` is the main entry point for the Jamaa SMPP Library, providing a high-level interface for SMPP (Short Message Peer-to-Peer) communication. It encapsulates the complexity of SMPP protocol handling, session management, and message processing, offering a simple and robust API for SMS applications.
+The `SmppClient` is the main entry point for Elyfe.Smpp, providing a high-level interface for SMPP (Short Message Peer-to-Peer) communication. It encapsulates the complexity of SMPP protocol handling, session management, and message processing, offering a simple and robust API for SMS applications.
 
 ### Key Responsibilities
 - **Connection Management**: Establishes and maintains SMPP connections with SMSC servers
@@ -46,7 +46,7 @@ graph TB
     subgraph "Core Components"
         SP[StreamParser]
         PT[PDUTransmitter]
-        RH[ResponseHandler]
+        RH[ResponseHandlerV2]
         TCP[TcpIpSession]
     end
     
@@ -116,9 +116,10 @@ classDiagram
         +Restart()
         +SendMessage(ShortMessage message)
         +SendMessage(ShortMessage message, int timeOut)
+        +SendMessageAsync(ShortMessage message)
+        +SendMessageAsync(ShortMessage message, int timeout, CancellationToken ct)
         +SendPdu(RequestPDU pdu, int timeout)
-        +BeginSendMessage(...)
-        +EndSendMessage(...)
+        +SendPduAsync(RequestPDU pdu, int timeout, CancellationToken ct)
         +ForceConnect()
         +ForceConnect(int timeout)
     }
@@ -306,28 +307,32 @@ public virtual void SendMessage(ShortMessage message, int timeOut)
 
 #### Send Message (Asynchronous)
 ```csharp
-public virtual IAsyncResult BeginSendMessage(ShortMessage message, int timeout, AsyncCallback callback, object state)
-public virtual IAsyncResult BeginSendMessage(ShortMessage message, AsyncCallback callback, object state)
-public virtual void EndSendMessage(IAsyncResult result)
+public virtual Task SendMessageAsync(ShortMessage message)
+public virtual Task SendMessageAsync(ShortMessage message, int timeout, CancellationToken cancellationToken = default)
 ```
-**Purpose**: Sends an SMS message asynchronously
+**Purpose**: Sends an SMS message without blocking the calling thread — the preferred API
 **Parameters**:
 - `message`: The message to send
-- `timeout`: Timeout for the operation
-- `callback`: Callback for completion notification
-- `state`: User state object
-**Returns**: `IAsyncResult` for async operation tracking
+- `timeout`: Response timeout in milliseconds; the parameterless overload uses `ConnectionTimeout`
+- `cancellationToken`: Cancels the wait for the SMSC's response
+**Returns**: A `Task` that completes once the SMSC has acknowledged every segment
+**Throws**: `SmppException` when the SMSC returns a non-zero status, `SmppResponseTimedOutException` on timeout
+
+> The APM pairs `BeginSendMessage`/`EndSendMessage` and `BeginSendPdu`/`EndSendPdu` were removed in `2026.1.0`.
+> Use these `Task`-based methods instead.
 
 #### Send PDU
 ```csharp
 public virtual ResponsePDU SendPdu(RequestPDU pdu, int timeout)
+public virtual Task<ResponsePDU> SendPduAsync(RequestPDU pdu, int timeout, CancellationToken cancellationToken = default)
 ```
 **Purpose**: Sends a raw PDU to the SMSC
 **Parameters**:
 - `pdu`: The PDU to send
 - `timeout`: Timeout for response
-**Returns**: `ResponsePDU` from SMSC
-**Use Case**: Advanced users who need direct PDU control
+- `cancellationToken`: Cancels the wait for the response
+**Returns**: The `ResponsePDU` returned by the SMSC
+**Use Case**: Commands the message model does not wrap
 
 ## Connection Management
 
@@ -462,32 +467,27 @@ graph TB
 ### Exception Types
 ```mermaid
 graph TD
-    subgraph "Connection Exceptions"
-        SCE[SmppClientException]
-        SBE[SmppBindException]
-        SE[SmppException]
-    end
-    
-    subgraph "Network Exceptions"
-        TCE[TcpIpConnectionException]
-        TSE[TcpIpSessionClosedException]
-        TE[TcpIpException]
-    end
-    
-    subgraph "Protocol Exceptions"
-        PE[PDUException]
-        PE2[PDUParseException]
-        PE3[InvalidPDUCommandException]
-    end
-    
-    SCE --> SE
-    SBE --> SE
-    SE --> PE
-    TCE --> TE
-    TSE --> TE
-    PE --> PE2
-    PE --> PE3
+    EX[System.Exception]
+
+    EX --> SE[SmppException]
+    SE --> SBE[SmppBindException]
+    SE --> STO[SmppResponseTimedOutException]
+
+    EX --> PE[PDUException]
+    PE --> PPE[PDUParseException]
+    PE --> PFE[PDUFormatException]
+    PE --> IPC[InvalidPDUCommandException]
+
+    EX --> TE[TcpIpException]
+    TE --> TCE[TcpIpConnectionException]
+    TE --> TSE[TcpIpSessionClosedException]
+
+    EX --> SCE[SmppClientException]
 ```
+
+Arrows point from base to derived. The four roots are independent — `SmppClientException` does **not** derive from
+`SmppException`, so catching one will not catch the other. Around a send, `SmppException` is the one that carries the
+SMSC's status in `ErrorCode`.
 
 ### Error Handling Strategy
 1. **Connection Errors**: Automatic reconnection with configurable delay
@@ -519,7 +519,7 @@ flowchart TD
 ```csharp
 // Create and configure client
 SmppClient client = new SmppClient();
-client.Properties.SystemID = "your_system_id";
+client.Properties.SystemId = "your_system_id";
 client.Properties.Password = "your_password";
 client.Properties.Host = "smpp.provider.com";
 client.Properties.Port = 2775;
@@ -573,15 +573,15 @@ TextMessage message = new TextMessage();
 message.DestinationAddress = "1234567890";
 message.Text = "Async message";
 
-IAsyncResult result = client.BeginSendMessage(message, (ar) => {
-    try {
-        client.EndSendMessage(ar);
-        Console.WriteLine("Message sent successfully");
-    }
-    catch (Exception ex) {
-        Console.WriteLine($"Send failed: {ex.Message}");
-    }
-}, null);
+try
+{
+    await client.SendMessageAsync(message, timeout: 30000, cancellationToken);
+    Console.WriteLine("Message sent successfully");
+}
+catch (SmppException ex)
+{
+    Console.WriteLine($"Send failed with SMPP status {(int)ex.ErrorCode}: {ex.ErrorCode}");
+}
 ```
 
 ### Advanced Configuration

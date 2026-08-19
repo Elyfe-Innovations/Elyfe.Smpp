@@ -99,17 +99,17 @@ classDiagram
     
     class TextMessage {
         +string Text
-        +GetPDUs() IEnumerable~SendSmPDU~
+        +int MaxMessageLength
+        #GetPDUs() IEnumerable~SendSmPDU~
+        #CreateSubmitSm(SmppEncodingService, SmppAddress, SmppAddress) SubmitSm
     }
     
     class MultiPartTextMessage {
-        +string Text
-        +SplitMethodType SplitMethod
-        +GetPDUs() IEnumerable~SendSmPDU~
+        #CreateSubmitSm(SmppEncodingService, SmppAddress, SmppAddress) SubmitSm
     }
     
     ShortMessage <|-- TextMessage
-    ShortMessage <|-- MultiPartTextMessage
+    TextMessage <|-- MultiPartTextMessage
 ```
 
 ### Core Dependencies
@@ -130,12 +130,19 @@ classDiagram
 - Delivery notification support
 
 ### MultiPartTextMessage
-**Purpose**: Explicitly controlled multi-part messages
+**Purpose**: A concatenated message the SMSC acknowledges once, rather than per segment
+
+`MultiPartTextMessage` derives from `TextMessage` and splits text exactly the same way. Its only difference is the
+PDU it emits: `SubmitSmMultiPart`, whose `HasResponse` is true only for the segment whose UDH reports `IsLast`. The
+sender therefore waits for a single `submit_sm_resp` covering the whole message instead of one per segment.
+
 **Characteristics**:
-- Manual control over splitting
-- Custom UDH generation
-- Segment management
-- Sequence number control
+- Same automatic splitting and UDH generation as `TextMessage`
+- Only the final segment expects a response
+- `EmptyResponse` is always true, so no message id is read back from the intermediate segments
+
+> It does **not** expose manual segment control, and there is no `SplitMethod` property on it. The `SplitMethodType`
+> enum exists in the source but is not referenced by any code path.
 
 ### Message Type Selection
 ```mermaid

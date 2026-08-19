@@ -96,7 +96,8 @@ catch (SmppException ex)
 ```
 
 Text longer than one segment is split automatically and concatenated with a UDH header — the segment id comes from
-`SegmentIdGeneratorFactory.Generator`. Use `MultiPartTextMessage` when you want to control the segments yourself.
+`SegmentIdGeneratorFactory.Generator`. `MultiPartTextMessage` splits identically but waits for a single
+`submit_sm_resp` covering the whole message rather than one per segment.
 
 ### Correlate submissions with receipts
 
@@ -208,6 +209,7 @@ Full history: [Releases](https://github.com/Elyfe-Innovations/Elyfe.Smpp/release
 
 ## Documentation
 
+- [Documentation index](docs/README.md)
 - [Architecture overview](docs/Architecture_Overview.md)
 - [`SmppClient`](docs/SmppClient.md) · [`SmppClientSession`](docs/SmppClientSession.md) ·
   [`ShortMessage`](docs/ShortMessage.md)

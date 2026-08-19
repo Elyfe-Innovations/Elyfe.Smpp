@@ -1,4 +1,4 @@
-# Jamaa SMPP Library - Architecture Overview
+# Elyfe.Smpp - Architecture Overview
 
 ## Table of Contents
 1. [Library Overview](#library-overview)
@@ -14,16 +14,18 @@
 
 ## Library Overview
 
-The Jamaa SMPP Library is a comprehensive .NET implementation of the SMPP (Short Message Peer-to-Peer) protocol, designed to provide robust SMS communication capabilities for .NET applications. The library follows a layered architecture that separates concerns between high-level application interfaces, protocol handling, and low-level network communication.
+Elyfe.Smpp is a .NET implementation of the SMPP (Short Message Peer-to-Peer) protocol, designed to provide robust SMS communication capabilities for .NET applications. The library follows a layered architecture that separates concerns between high-level application interfaces, protocol handling, and low-level network communication.
 
 ### Key Features
 - **Complete SMPP 3.4 Support**: Full implementation of SMPP protocol specification
-- **Multi-Framework Support**: Compatible with .NET Framework 4.0, .NET 4.8, .NET 8.0, and .NET Standard 2.0
+- **Target Frameworks**: `netstandard2.1` and `net10.0`
+- **Task-Based API**: `SendMessageAsync`/`SendPduAsync` alongside the blocking overloads
 - **Automatic Reconnection**: Built-in connection management with automatic reconnection
 - **Multi-Part Message Support**: Automatic handling of concatenated SMS messages
 - **Event-Driven Architecture**: Comprehensive event system for message and connection handling
 - **Thread-Safe Design**: Safe for use in multi-threaded environments
 - **Extensible Design**: Modular architecture allowing for customization and extension
+- **Pluggable Logging**: Diagnostics go through `Microsoft.Extensions.Logging`; the library takes the abstractions package only
 
 ## System Architecture
 
@@ -43,7 +45,7 @@ graph TB
     
     subgraph "Session Layer"
         SCS[SmppClientSession]
-        RH[ResponseHandler]
+        RH[ResponseHandlerV2]
         PT[PDUTransmitter]
     end
     
@@ -95,7 +97,7 @@ graph TD
         SCS[SmppClientSession]
         SP[StreamParser]
         PT[PDUTransmitter]
-        RH[ResponseHandler]
+        RH[ResponseHandlerV2]
         TCP[TcpIpSession]
         ES[SmppEncodingService]
     end
@@ -137,10 +139,10 @@ graph TD
 | Component | Primary Responsibility | Dependencies | Events |
 |-----------|----------------------|--------------|--------|
 | SmppClient | High-level interface, connection management | SmppClientSession, ShortMessage | ConnectionStateChanged, MessageReceived, MessageSent |
-| SmppClientSession | Session coordination, PDU processing | StreamParser, PDUTransmitter, ResponseHandler | PduReceived, SessionClosed |
+| SmppClientSession | Session coordination, PDU processing | StreamParser, PDUTransmitter, IResponseHandler | PduReceived, SessionClosed |
 | StreamParser | Byte stream parsing, PDU creation | TcpIpSession, SmppEncodingService | PDUError, ParserException |
 | PDUTransmitter | PDU transmission | TcpIpSession | None |
-| ResponseHandler | Response queuing, timeout management | None | None |
+| ResponseHandlerV2 | Matching responses to waiters, timeouts, expiry of unclaimed responses | None | None |
 | TcpIpSession | TCP/IP communication | Socket | SessionClosed, SessionException |
 | SmppEncodingService | Character encoding/decoding | None | None |
 
@@ -157,7 +159,7 @@ sequenceDiagram
     participant TCP as TcpIpSession
     participant SMSC as SMSC Server
     
-    APP->>SC: SendMessage(message)
+    APP->>SC: SendMessageAsync(message)
     SC->>SM: GetMessagePDUs()
     SM->>SM: Create SubmitSm PDUs
     SM->>SC: PDU Collection
@@ -318,7 +320,7 @@ graph TB
 - **SmppClientSession**: Thread-safe with proper synchronization
 - **StreamParser**: Runs in dedicated background thread
 - **PDUTransmitter**: Thread-safe (stateless)
-- **ResponseHandler**: Thread-safe with locking mechanisms
+- **ResponseHandlerV2**: Thread-safe; a single lock covers waiter registration and response retention
 - **TcpIpSession**: Thread-safe with connection state management
 
 ## Error Handling Strategy
@@ -326,39 +328,33 @@ graph TB
 ### Error Hierarchy
 ```mermaid
 graph TD
-    subgraph "Error Types"
-        subgraph "Application Errors"
-            AE[ApplicationException]
-            SCE[SmppClientException]
-        end
-        
-        subgraph "Protocol Errors"
-            PE[PDUException]
-            SBE[SmppBindException]
-            SE[SmppException]
-        end
-        
-        subgraph "Network Errors"
-            NE[NetworkException]
-            TCE[TcpIpConnectionException]
-            TSE[TcpIpSessionClosedException]
-        end
-        
-        subgraph "System Errors"
-            SE2[SystemException]
-            IOE[IOException]
-            SOE[SocketException]
-        end
-    end
-    
-    AE --> SCE
-    PE --> SBE
-    PE --> SE
-    NE --> TCE
-    NE --> TSE
-    SE2 --> IOE
-    SE2 --> SOE
+    EX[System.Exception]
+
+    EX --> SE[SmppException]
+    SE --> SBE[SmppBindException]
+    SE --> STO[SmppResponseTimedOutException]
+
+    EX --> PE[PDUException]
+    PE --> PPE[PDUParseException]
+    PE --> PFE[PDUFormatException]
+
+    EX --> TIE[TcpIpException]
+    TIE --> TCE[TcpIpConnectionException]
+    TIE --> TSE[TcpIpSessionClosedException]
+
+    EX --> SCE[SmppClientException]
 ```
+
+There are four independent roots, all deriving directly from `System.Exception`:
+
+| Root | Raised by | Notable subclasses |
+|------|-----------|--------------------|
+| `SmppException` | Protocol-level failures; carries the SMSC's `ErrorCode` | `SmppBindException`, `SmppResponseTimedOutException` |
+| `PDUException` | Malformed or unparseable PDUs | `PDUParseException`, `PDUFormatException` |
+| `TcpIpException` | Transport failures | `TcpIpConnectionException`, `TcpIpSessionClosedException` |
+| `SmppClientException` | `SmppClient`-level misuse and state errors | — |
+
+`SmppException` is the one to catch around a send: `ErrorCode` holds the SMPP status the SMSC returned.
 
 ### Error Recovery Mechanisms
 1. **Connection Errors**: Automatic reconnection with configurable delays
@@ -413,20 +409,28 @@ graph TB
 | Client | KeepAliveInterval | EnquireLink interval | 30000ms |
 | Client | ConnectionTimeout | Connection timeout | 5000ms |
 | Session | DefaultResponseTimeout | PDU response timeout | 5000ms |
-| Session | EnquireLinkInterval | Keep-alive interval | 60000ms |
-| Network | SendBufferSize | TCP send buffer | 1024 bytes |
-| Network | ReceiveBufferSize | TCP receive buffer | 4096 bytes |
+| Session | EnquireLinkInterval | Keep-alive interval | set by `SmppClient` from `KeepAliveInterval` |
+| Network | SendBufferSize | TCP send buffer | OS default (proxies `Socket.SendBufferSize`) |
+| Network | ReceiveBufferSize | TCP receive buffer | OS default (proxies `Socket.ReceiveBufferSize`) |
 
 ## Performance Characteristics
 
-### Performance Metrics
-| Operation | Typical Latency | Throughput | Memory Usage |
-|-----------|----------------|------------|--------------|
-| Single Message Send | 50-200ms | 100-500 msg/sec | Low |
-| Multi-Part Message | 100-500ms | 50-200 msg/sec | Medium |
-| Connection Establishment | 1-5 seconds | N/A | Low |
-| PDU Parsing | <1ms | 1000+ PDU/sec | Low |
-| Message Encoding | <1ms | 1000+ msg/sec | Low |
+### Where the time goes
+
+End-to-end message latency is dominated by the SMSC round trip and the network path to it, not by this library — a
+send blocks until the SMSC returns a `submit_sm_resp`, and how long that takes is the SMSC's business. What the
+library controls is what happens either side of that wait:
+
+- **Response matching** — `ResponseHandlerV2` is the hot path shared by every in-flight request. `Benchmarks/`
+  measures it directly; run `dotnet run -c Release --project Benchmarks` for numbers on your own hardware.
+- **Concatenation** — a message split into *n* segments becomes *n* `submit_sm` round trips, so its latency is
+  roughly *n* times a single send.
+- **Encoding** — `SmppEncodingService` allocates a byte array per conversion. UCS2 doubles the byte count of the
+  text and halves the characters that fit in a segment, which is usually the more significant effect.
+
+Throughput is bounded by the SMSC's window size and any rate limit it imposes, and by whether you use one
+transceiver session or separate transmit/receive sessions. Measure against your own SMSC rather than assuming a
+figure.
 
 ### Scalability Considerations
 1. **Connection Pooling**: Multiple client instances for high throughput
@@ -490,4 +494,4 @@ graph TB
 - **Resource Usage**: Monitor memory, CPU, and network usage
 - **Delivery Rates**: Track message delivery success rates
 
-The Jamaa SMPP Library provides a robust, scalable, and maintainable foundation for SMS communication in .NET applications, with comprehensive support for all aspects of SMPP protocol implementation and production deployment scenarios.
+Elyfe.Smpp provides a foundation for SMS communication in .NET applications, covering the SMPP protocol operations an ESME needs along with the connection management, encoding and concatenation concerns that surround them.

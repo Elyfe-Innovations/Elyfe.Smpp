@@ -14,7 +14,7 @@
 
 ## Overview
 
-The `StreamParser` is a critical component of the Jamaa SMPP Library that serves as the bridge between raw TCP/IP byte streams and structured SMPP Protocol Data Units (PDUs). It operates as a continuous background thread that reads incoming data from a TCP/IP session, parses it into PDU headers and bodies, and routes the resulting PDUs to appropriate handlers.
+The `StreamParser` is a critical component of Elyfe.Smpp that serves as the bridge between raw TCP/IP byte streams and structured SMPP Protocol Data Units (PDUs). It operates as a continuous background thread that reads incoming data from a TCP/IP session, parses it into PDU headers and bodies, and routes the resulting PDUs to appropriate handlers.
 
 ### Key Responsibilities
 - **Byte Stream Processing**: Reads raw bytes from TCP/IP connections
@@ -47,7 +47,7 @@ graph TB
     end
     
     subgraph "Processing Layer"
-        RH[ResponseHandler]
+        RH[ResponseHandlerV2]
         PC[PduProcessorCallback]
         SES[SmppEncodingService]
     end
@@ -82,7 +82,7 @@ classDiagram
     class StreamParser {
         -TcpIpSession vTcpIpSession
         -PduProcessorCallback vProcessorCallback
-        -ResponseHandler vResponseHandler
+        -IResponseHandler vResponseHandler
         -SmppEncodingService vSmppEncodingService
         -TraceSwitch vTraceSwitch
         +PDUError event
@@ -103,7 +103,7 @@ classDiagram
 
 #### Constructor
 ```csharp
-public StreamParser(TcpIpSession session, ResponseHandler responseQueue, 
+public StreamParser(TcpIpSession session, IResponseHandler responseQueue,
                    PduProcessorCallback requestProcessor, SmppEncodingService smppEncodingService)
 ```
 
@@ -174,27 +174,33 @@ flowchart TD
 
 ## Related Components
 
-### ResponseHandler
-Manages response PDU queuing and timeout handling:
+### IResponseHandler
+Response handling is pluggable behind an interface; `ResponseHandlerV2` is the implementation the session uses.
 
 ```csharp
-public class ResponseHandler
+public interface IResponseHandler
 {
-    private IDictionary<uint, ResponsePDU> vResponseQueue;
-    private IDictionary<uint, PDUWaitContext> vWaitingQueue;
-    private AutoResetEvent vResponseEvent;
-    private AutoResetEvent vWaitingEvent;
-    
-    public void Handle(ResponsePDU pdu)
-    public ResponsePDU WaitResponse(RequestPDU pdu)
-    public ResponsePDU WaitResponse(RequestPDU pdu, int timeOut)
+    int DefaultResponseTimeout { get; }
+    int Count { get; }
+
+    void Handle(ResponsePDU pdu);
+    ResponsePDU WaitResponse(RequestPDU pdu);
+    ResponsePDU WaitResponse(RequestPDU pdu, int timeOut);
+    Task<ResponsePDU> WaitResponseAsync(RequestPDU pdu, CancellationToken cancellationToken = default);
+    Task<ResponsePDU> WaitResponseAsync(RequestPDU pdu, int timeOut, CancellationToken cancellationToken = default);
 }
 ```
 
+`StreamParser` only ever calls `Handle`. Callers on the sending side wait through `WaitResponse`/`WaitResponseAsync`,
+matched by sequence number.
+
 **Key Features:**
-- Thread-safe response queuing
-- Timeout management for response waiting
-- Automatic cleanup of expired requests
+- Delivery is **once-only** — a response handed to a waiter is not retained afterwards
+- A single lock covers both the waiting queue and the retention queue, so a response arriving between a waiter's
+  check and its wait cannot be missed
+- A response nobody is waiting for is retained briefly, then expires; unclaimed responses do not accumulate for the
+  life of the session
+- `Count` exposes the number of currently retained responses
 
 ### TcpIpSession
 Provides the underlying network communication:
@@ -285,7 +291,7 @@ sequenceDiagram
     participant BH as ByteBuffer
     participant PH as PDUHeader
     participant PDU as PDU Object
-    participant RH as ResponseHandler
+    participant RH as IResponseHandler
     participant PC as ProcessorCallback
     
     TCP->>SP: Raw bytes received
@@ -424,16 +430,21 @@ graph TB
 - **Event Threading**: Events are raised asynchronously to prevent blocking
 - **Synchronization**: Critical sections use appropriate locking mechanisms
 
-### .NET Framework Compatibility
-The code includes conditional compilation for different .NET versions:
+### Request dispatch
+Request PDUs are handed to the processor callback on the thread pool, so parsing is never blocked by application
+handling:
 
 ```csharp
-#if NET40
-    vProcessorCallback.BeginInvoke((RequestPDU)pdu, AsyncCallBackProcessPduRequest, null);
-#else
-    System.Threading.Tasks.Task.Run(() => vProcessorCallback.Invoke((RequestPDU)pdu));
-#endif
+Task.Run(() =>
+{
+    try { vProcessorCallback.Invoke((RequestPDU)pdu); }
+    catch (Exception ex) { Logger.LogError(ex, "Exception in PDU processor callback"); }
+});
 ```
+
+The `#if NET40` branch that used `BeginInvoke` is gone — `net48` and `netstandard2.0` were dropped in `2026.1.0`, so
+this path is unconditional. The remaining conditional compilation in the library is confined to `Compat/`, which
+backfills a handful of APIs for `netstandard2.1`.
 
 ## SMPP Protocol Support
 
@@ -480,8 +491,8 @@ The StreamParser supports the complete SMPP 3.4 protocol specification:
 // Create TCP/IP session
 TcpIpSession session = TcpIpSession.OpenClientSession("smpp.provider.com", 2775);
 
-// Create response handler
-ResponseHandler responseHandler = new ResponseHandler();
+// Create response handler (the factory picks the configured implementation)
+IResponseHandler responseHandler = ResponseHandlerFactory.Create();
 
 // Create encoding service
 SmppEncodingService encodingService = new SmppEncodingService();
@@ -585,16 +596,12 @@ parser.ParserException += (sender, e) => {
 
 ### Monitoring and Diagnostics
 ```csharp
-// Enable tracing for debugging
-TraceSwitch traceSwitch = new TraceSwitch("StreamParserSwitch", "Stream parser switch");
-traceSwitch.Level = TraceLevel.Verbose;
-
-// Monitor parser performance
-Stopwatch stopwatch = Stopwatch.StartNew();
-PDU pdu = WaitPDU();
-stopwatch.Stop();
-Console.WriteLine($"PDU parsing took: {stopwatch.ElapsedMilliseconds}ms");
+// The parser logs through Microsoft.Extensions.Logging. Register a factory once and its
+// diagnostics - parse failures, TCP errors, unanticipated exceptions - go to your sink.
+SmppLog.SetLoggerFactory(loggerFactory);   // JamaaTech.Smpp.Net.Lib.Logging
 ```
+
+Set the minimum level for the `JamaaTech.Smpp.Net.Lib.StreamParser` category to `Debug` to see per-PDU detail.
 
 ### Best Practices
 1. **Resource Management**: Always properly dispose of TCP sessions and stop parsers
@@ -605,6 +612,6 @@ Console.WriteLine($"PDU parsing took: {stopwatch.ElapsedMilliseconds}ms");
 
 ## Conclusion
 
-The StreamParser is a robust and efficient component that forms the foundation of the Jamaa SMPP Library's protocol handling capabilities. Its design emphasizes reliability, performance, and maintainability while providing comprehensive support for the SMPP protocol specification. The component's modular architecture allows for easy extension and customization while maintaining thread safety and proper error handling throughout the parsing process.
+The StreamParser is a robust and efficient component that forms the foundation of Elyfe.Smpp's protocol handling capabilities. Its design emphasizes reliability, performance, and maintainability while providing comprehensive support for the SMPP protocol specification. The component's modular architecture allows for easy extension and customization while maintaining thread safety and proper error handling throughout the parsing process.
 
-The combination of synchronous parsing with asynchronous processing ensures optimal performance while the comprehensive error handling and logging capabilities make it suitable for production environments. The support for multiple .NET framework versions ensures broad compatibility across different deployment scenarios.
+The combination of synchronous parsing with asynchronous processing ensures optimal performance while the comprehensive error handling and logging capabilities make it suitable for production environments.

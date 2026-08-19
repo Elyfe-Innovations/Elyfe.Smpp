@@ -79,9 +79,8 @@ classDiagram
         +GetIntFromBytes(byte[] data) uint
         +GetBytesFromShort(ushort value) byte[]
         +GetShortFromBytes(byte[] data) ushort
-        +GetBytesFromCString(string cStr) byte[]
-        +GetBytesFromCString(string cStr, DataCoding dataCoding) byte[]
-        +GetBytesFromCString(string cStr, DataCoding dataCoding, bool nullTerminated) byte[]
+        +GetBytesFromCString(string cStr, bool nullTerminated = true) byte[]
+        +GetBytesFromCString(string cStr, DataCoding dataCoding, bool nullTerminated = true) byte[]
         +GetCStringFromBytes(byte[] data) string
         +GetCStringFromBytes(byte[] data, DataCoding dataCoding) string
         +GetBytesFromString(string cStr) byte[]
@@ -92,17 +91,18 @@ classDiagram
     
     class DataCoding {
         <<enumeration>>
+        SMSCDefault
         ASCII
         Latin1
         UCS2
-        SMSCDefault
+        ...
     }
     
     SmppEncodingService --> DataCoding
 ```
 
 ### Dependencies
-- **System.Text.Encoding**: .NET framework encoding classes
+- **System.Text.Encoding**: the BCL encoding classes
 - **DataCoding**: SMPP data coding enumeration
 - **Latin1Encoding**: Custom Latin1 encoding implementation
 - **SMSCDefaultEncoding**: Custom SMSC default encoding implementation
@@ -115,7 +115,11 @@ classDiagram
 | `ASCII` | 7-bit ASCII encoding | Basic English text |
 | `Latin1` | ISO-8859-1 encoding | Western European languages |
 | `UCS2` | Unicode 16-bit encoding | International text, emojis |
-| `SMSCDefault` | SMSC-specific encoding | Provider-specific encoding |
+| `SMSCDefault` | GSM 03.38 alphabet (see `SMSCDefaultEncoding`) | The SMSC's own default alphabet |
+
+These are the codings `SmppEncodingService` converts. `DataCoding` itself declares the full SMPP 3.4 set —
+`Octet1`, `Octet2`, `JIS`, `Cyrllic`, `Latin_Hebrew`, `Pictogram`, `MusicCodes`, `ExtendedKanji`, `KS_C_5601` and the
+`GSM_MWI_*` message-waiting values — which pass through as raw octets.
 
 ### Data Coding Selection
 ```mermaid
