@@ -180,3 +180,6 @@ ModelManifest.xml
 /.nuget
 /1
 codealike.json
+
+# Test run output (dotnet test --results-directory)
+TestResults/

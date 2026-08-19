@@ -1,0 +1,130 @@
+name: Build and Publish
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+  release:
+    types:
+      - published
+
+jobs:
+  test:
+    name: Test
+    # Deviation from the Elyfe.Orleans.Marten.Persistence flow, which tests only on push
+    # to the default branch. The suite here guards a release path that has already been
+    # broken twice by test failures, so pull requests run it too.
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore dependencies
+        run: dotnet restore Elyfe.Smpp.slnx
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore Elyfe.Smpp.slnx
+
+      # Scoped to the library tests. JamaaTech.Smpp.Net.Client.Tests cannot run yet:
+      # SmppClientSession exposes only a private constructor, so Moq cannot subclass it
+      # and every test that mocks a session fails with "Parent does not have a default
+      # constructor". Widen this to the solution once that type offers a seam.
+      - name: Test
+        run: dotnet test --configuration Release --no-build Tests/JamaaTech.Smpp.Net.Lib.Tests/JamaaTech.Smpp.Net.Lib.Tests.csproj --logger trx --results-directory TestResults
+
+      - name: Publish test results
+        uses: dorny/test-reporter@v2
+        if: always()
+        with:
+          name: .NET Test Results
+          path: TestResults/*.trx
+          reporter: dotnet-trx
+
+  build:
+    name: Build and Pack
+    if: github.event_name == 'pull_request' || (github.event_name == 'release' && github.event.action == 'published')
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    outputs:
+      nuget_version: ${{ steps.version.outputs.nuget_version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Required for MinVer to see the tag history
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      # This repo versions with MinVer off the git tag rather than GitVersion, so the
+      # version is not passed to pack. This output only labels the deployment URL below.
+      - name: Determine version
+        id: version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: echo "nuget_version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore dependencies
+        run: dotnet restore Elyfe.Smpp.slnx
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore Elyfe.Smpp.slnx
+
+      # Deliberately no --no-build: Smpp.Net.Lib is bundled into this package by the
+      # CopyProjectReferencesToPackage target, which invokes the Build target and so
+      # fails with NETSDK1085 whenever NoBuild is set.
+      - name: Pack
+        run: dotnet pack JamaaTech.Smpp.Net.Client/Smpp.Net.Client.csproj --configuration Release --output ./nupkgs
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: nupkg
+          path: |
+            ./nupkgs/*.nupkg
+            ./nupkgs/*.snupkg
+
+  publish:
+    name: Publish to NuGet
+    needs: build
+    permissions:
+      id-token: write
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    environment:
+      name: nuget
+      url: https://www.nuget.org/packages/Elyfe.Smpp/${{ needs.build.outputs.nuget_version }}
+    if: github.event_name == 'release' && github.event.action == 'published'
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: nupkg
+          path: ./nupkgs
+      # Get a short-lived NuGet API key
+      - name: NuGet login (OIDC → temp API key)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+      # Setup dotnet runtime
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      # Push using the short-lived token. The .snupkg sitting alongside each .nupkg is
+      # picked up and pushed with it, so symbols ship without a separate step.
+      - name: Push to NuGet
+        run: dotnet nuget push ./nupkgs/*.nupkg --api-key ${{steps.login.outputs.NUGET_API_KEY}} --source "https://api.nuget.org/v3/index.json"
