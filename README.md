@@ -95,8 +95,8 @@ catch (SmppException ex)
 }
 ```
 
-Messages longer than a single segment are split automatically. `SplitMethodType` selects between UDH concatenation and
-the `sar_*` optional parameters; `MultiPartTextMessage` gives you direct control over the segments.
+Text longer than one segment is split automatically and concatenated with a UDH header — the segment id comes from
+`SegmentIdGeneratorFactory.Generator`. Use `MultiPartTextMessage` when you want to control the segments yourself.
 
 ### Correlate submissions with receipts
 
