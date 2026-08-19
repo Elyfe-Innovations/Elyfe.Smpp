@@ -90,8 +90,13 @@ namespace JamaaTech.Smpp.Net.Lib.Tests
             var req = new TestRequestPDU(seq);
             var resp = new TestResponsePDU(seq);
 
+            const int timeOut = 5000;
+
             var sw = Stopwatch.StartNew();
-            var waitTask = Task.Run(() => handler.WaitResponse(req, 500));
+            // A dedicated thread rather than a pool one: a blocking wait queued behind a
+            // saturated pool may not start until well after Handle has already run.
+            var waitTask = Task.Factory.StartNew(
+                () => handler.WaitResponse(req, timeOut), TaskCreationOptions.LongRunning);
 
             Task.Delay(25).Wait();
             handler.Handle(resp);
@@ -101,7 +106,7 @@ namespace JamaaTech.Smpp.Net.Lib.Tests
 
             Assert.Same(resp, result);
             Assert.True(sw.ElapsedMilliseconds >= 20);
-            Assert.True(sw.ElapsedMilliseconds < 500);
+            Assert.True(sw.ElapsedMilliseconds < timeOut);
         }
 
         [Fact]
@@ -156,17 +161,58 @@ namespace JamaaTech.Smpp.Net.Lib.Tests
         }
 
         [Fact]
-        public void ResponseNotRemoved_AllowsSecondWaitResponse_ReturningSameObject()
+        public void ResponseIsDeliveredOnce_AndNotRetainedAfterwards()
         {
-            var handler = new ResponseHandlerV2();
-            uint seq = 0x5555;
-            var resp = new TestResponsePDU(seq);
-            handler.Handle(resp);
-            var first = handler.WaitResponse(new TestRequestPDU(seq));
-            var second = handler.WaitResponse(new TestRequestPDU(seq)); // same cached instance
-            Assert.Same(resp, first);
-            Assert.Same(first, second); // demonstrates stale retention (issue)
-            Assert.Equal(1, GetResponseQueueCount(handler));
+            int original = ResponseHandlerV2.GetMinimumTimeoutForTesting();
+            ResponseHandlerV2.SetMinimumTimeoutForTesting(200);
+            try
+            {
+                var handler = new ResponseHandlerV2();
+                uint seq = 0x5555;
+                var resp = new TestResponsePDU(seq);
+                handler.Handle(resp);
+
+                var first = handler.WaitResponse(new TestRequestPDU(seq));
+                Assert.Same(resp, first);
+
+                // Delivery is once-only. Retaining it is what used to grow the queue for
+                // the whole life of the session.
+                Assert.Equal(0, GetResponseQueueCount(handler));
+                Assert.Throws<SmppResponseTimedOutException>(
+                    () => handler.WaitResponse(new TestRequestPDU(seq)));
+            }
+            finally
+            {
+                ResponseHandlerV2.SetMinimumTimeoutForTesting(original);
+            }
+        }
+
+        [Fact]
+        public void UnclaimedResponses_DoNotAccumulateIndefinitely()
+        {
+            int original = ResponseHandlerV2.GetMinimumTimeoutForTesting();
+            ResponseHandlerV2.SetMinimumTimeoutForTesting(200);
+            try
+            {
+                var handler = new ResponseHandlerV2();
+
+                // Responses for requests whose sender already gave up: nothing ever waits
+                // on these, and before the fix they stayed for the life of the session.
+                for (uint seq = 1; seq <= 20; seq++)
+                {
+                    handler.Handle(new TestResponsePDU(seq));
+                }
+                Assert.Equal(20, handler.Count);
+
+                Thread.Sleep(400); // past the retention window
+
+                handler.Handle(new TestResponsePDU(0x999));
+                Assert.Equal(1, handler.Count); // the 20 expired entries were pruned
+            }
+            finally
+            {
+                ResponseHandlerV2.SetMinimumTimeoutForTesting(original);
+            }
         }
 
         [Fact]
@@ -186,7 +232,7 @@ namespace JamaaTech.Smpp.Net.Lib.Tests
                     handler.Handle(new TestResponsePDU(s));
                 }
                 Task.WaitAll(tasks);
-                Assert.Equal(n, handler.Count); // all responses cached (also indicates not removed)
+                Assert.Equal(0, handler.Count); // every response was delivered, none retained
             }
             finally
             {
@@ -478,12 +524,15 @@ namespace JamaaTech.Smpp.Net.Lib.Tests
 
                 if (i % 2 == 0)
                 {
-                    // Sync operation
-                    return Task.Run(() =>
+                    // Sync operation. Both halves block, so both get a dedicated thread:
+                    // parking 100 pool threads here starves the pool that the async half
+                    // and the handler's own timers need, and everything then times out.
+                    return Task.Factory.StartNew(() =>
                     {
                         try
                         {
-                            var waitTask = Task.Run(() => handler.WaitResponse(req));
+                            var waitTask = Task.Factory.StartNew(
+                                () => handler.WaitResponse(req), TaskCreationOptions.LongRunning);
                             Thread.Sleep(10);
                             handler.Handle(resp);
                             var result = waitTask.Result;
@@ -493,7 +542,7 @@ namespace JamaaTech.Smpp.Net.Lib.Tests
                         {
                             exceptions.Add(ex);
                         }
-                    });
+                    }, TaskCreationOptions.LongRunning);
                 }
                 else
                 {
