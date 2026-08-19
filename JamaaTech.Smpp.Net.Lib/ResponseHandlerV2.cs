@@ -229,6 +229,12 @@ namespace JamaaTech.Smpp.Net.Lib
             RetainedResponse retained;
             if (!vResponseQueue.TryGetValue(sequenceNumber, out retained)) { return null; }
             vResponseQueue.Remove(sequenceNumber);
+
+            // Every queued key refers to an entry of this dictionary, so once it is empty
+            // each remaining key is stale. Dropping them here keeps a burst of retained
+            // responses from leaving its bookkeeping behind until the next one arrives.
+            if (vResponseQueue.Count == 0) { vRetentionOrder.Clear(); }
+
             return retained.Pdu;
         }
 
