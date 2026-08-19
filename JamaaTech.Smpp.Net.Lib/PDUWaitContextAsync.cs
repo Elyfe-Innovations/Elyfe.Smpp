@@ -1,4 +1,4 @@
-﻿using JamaaTech.Smpp.Net.Lib.Protocol;
+using JamaaTech.Smpp.Net.Lib.Protocol;
 using System.Threading.Tasks;
 
 namespace JamaaTech.Smpp.Net.Lib
@@ -64,14 +64,24 @@ namespace JamaaTech.Smpp.Net.Lib
         #region Methods
         public void AlertResponseReceived(ResponsePDU response)
         {
+            TryAlertResponseReceived(response);
+        }
+
+        /// <summary>
+        /// Delivers the response to the waiter and reports whether it was accepted.
+        /// A context that has already timed out or been cancelled returns false, which
+        /// tells the caller nobody received this response.
+        /// </summary>
+        public bool TryAlertResponseReceived(ResponsePDU response)
+        {
             lock (vSyncRoot)
             {
-                if (!vCompleted)
-                {
-                    vCompleted = true;
-                    vTaskCompletionSource.TrySetResult(response);
-                    Cleanup();
-                }
+                if (vCompleted) { return false; }
+
+                vCompleted = true;
+                vTaskCompletionSource.TrySetResult(response);
+                Cleanup();
+                return true;
             }
         }
 

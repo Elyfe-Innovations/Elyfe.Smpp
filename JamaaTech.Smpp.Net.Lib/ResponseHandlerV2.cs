@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using JamaaTech.Smpp.Net.Lib.Protocol;
 using System.Threading.Tasks;
 
@@ -9,14 +11,46 @@ namespace JamaaTech.Smpp.Net.Lib
     {
         #region Variables
         private int vDefaultResponseTimeout;
-        private IDictionary<uint, ResponsePDU> vResponseQueue;
-        private IDictionary<uint, PDUWaitContextAsync> vWaitingQueue;
-        private readonly object vResponseLock = new object();
-        private readonly object vWaitingLock = new object();
+        private readonly IDictionary<uint, RetainedResponse> vResponseQueue;
+        private readonly IDictionary<uint, PDUWaitContextAsync> vWaitingQueue;
+        private readonly Queue<RetentionKey> vRetentionOrder;
+        // A single lock covers both queues. Registering a waiter and retaining a response
+        // have to be atomic with respect to each other: with separate locks a response can
+        // be retained just after a waiter looked for it and just before it begins waiting,
+        // and the waiter then blocks for its whole timeout with the response sitting in
+        // the queue beside it.
+        private readonly object vSyncRoot = new object();
         // Minimum enforced timeout (was hard-coded 5000). Made adjustable for testing.
         private static int sMinTimeout = 5000;
         // Small scheduling slack to avoid flakiness under heavy test concurrency
         private const int SchedulingSlackMs = 20;
+        private static readonly double TicksPerMillisecond = Stopwatch.Frequency / 1000.0;
+        #endregion
+
+        #region Nested Types
+        private sealed class RetainedResponse
+        {
+            internal RetainedResponse(ResponsePDU pdu, long stamp)
+            {
+                Pdu = pdu;
+                Stamp = stamp;
+            }
+
+            internal ResponsePDU Pdu { get; }
+            internal long Stamp { get; }
+        }
+
+        private struct RetentionKey
+        {
+            internal RetentionKey(uint sequenceNumber, long stamp)
+            {
+                SequenceNumber = sequenceNumber;
+                Stamp = stamp;
+            }
+
+            internal uint SequenceNumber { get; }
+            internal long Stamp { get; }
+        }
         #endregion
 
         #region Testing Helpers
@@ -39,7 +73,8 @@ namespace JamaaTech.Smpp.Net.Lib
         {
             vDefaultResponseTimeout = sMinTimeout; //Default min
             vWaitingQueue = new Dictionary<uint, PDUWaitContextAsync>(32);
-            vResponseQueue = new Dictionary<uint, ResponsePDU>(32);
+            vResponseQueue = new Dictionary<uint, RetainedResponse>(32);
+            vRetentionOrder = new Queue<RetentionKey>();
         }
         #endregion
 
@@ -54,9 +89,15 @@ namespace JamaaTech.Smpp.Net.Lib
                 Interlocked.Exchange(ref vDefaultResponseTimeout, timeOut);
             }
         }
+
+        /// <summary>
+        /// Number of responses currently retained for waiters that have not registered yet.
+        /// A response is removed as soon as it is delivered, so this stays near zero in
+        /// normal traffic rather than growing with the age of the connection.
+        /// </summary>
         public int Count
         {
-            get { lock (vResponseLock) { return vResponseQueue.Count; } }
+            get { lock (vSyncRoot) { return vResponseQueue.Count; } }
         }
         #endregion
 
@@ -65,23 +106,20 @@ namespace JamaaTech.Smpp.Net.Lib
         public void Handle(ResponsePDU pdu)
         {
             uint sequenceNumber = pdu.Header.SequenceNumber;
-            
-            // First, add the response to the queue
-            lock (vResponseLock)
-            {
-                vResponseQueue[sequenceNumber] = pdu;
-            }
-            
-            // Then check for waiting contexts and notify them
-            lock (vWaitingLock)
+
+            lock (vSyncRoot)
             {
                 PDUWaitContextAsync waitContext;
                 if (vWaitingQueue.TryGetValue(sequenceNumber, out waitContext))
                 {
-                    waitContext.AlertResponseReceived(pdu);
-                    // Always remove after signaling (success or timeout) to avoid leaks
                     vWaitingQueue.Remove(sequenceNumber);
+                    // A context that has already timed out or been cancelled refuses the
+                    // response. Nobody received it then, so fall through and retain it -
+                    // the caller's final take still picks it up.
+                    if (waitContext.TryAlertResponseReceived(pdu)) { return; }
                 }
+
+                RetainResponse(sequenceNumber, pdu);
             }
         }
 
@@ -93,11 +131,7 @@ namespace JamaaTech.Smpp.Net.Lib
         public ResponsePDU WaitResponse(RequestPDU pdu, int timeOut)
         {
             uint sequenceNumber = pdu.Header.SequenceNumber;
-            
-            // Check if response already exists
-            ResponsePDU resp = FetchResponse(sequenceNumber);
-            if (resp != null) { return resp; }
-            
+
             if (timeOut < sMinTimeout) { timeOut = vDefaultResponseTimeout; }
             int effectiveTimeout = checked(timeOut + SchedulingSlackMs);
 
@@ -105,99 +139,64 @@ namespace JamaaTech.Smpp.Net.Lib
             // signals both the same way. This one is TaskCompletionSource-based; the
             // AutoResetEvent variant it replaced is gone.
             var tcs = new TaskCompletionSource<ResponsePDU>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var waitContext = new PDUWaitContextAsync(sequenceNumber, effectiveTimeout, tcs, CancellationToken.None);
-            
-            // Register waiter (no nested locks with response lock)
-            lock (vWaitingLock)
+
+            lock (vSyncRoot)
             {
-                vWaitingQueue[sequenceNumber] = waitContext;
+                ResponsePDU retained = TakeResponse(sequenceNumber);
+                if (retained != null) { return retained; }
+
+                vWaitingQueue[sequenceNumber] =
+                    new PDUWaitContextAsync(sequenceNumber, effectiveTimeout, tcs, CancellationToken.None);
             }
 
-            // Double-check after registration without holding waiting lock
-            resp = FetchResponse(sequenceNumber);
-            if (resp != null)
-            {
-                // Remove waiter and return immediately
-                waitContext.Dispose();
-                lock (vWaitingLock)
-                {
-                    vWaitingQueue.Remove(sequenceNumber);
-                }
-                return resp;
-            }
-            
-            // Wait for the response. A timeout surfaces as SmppResponseTimedOutException,
-            // which is swallowed here so a response queued by a racing Handle still wins.
             try
             {
-                tcs.Task.GetAwaiter().GetResult();
+                return tcs.Task.GetAwaiter().GetResult();
             }
             catch (SmppResponseTimedOutException)
             {
+                ResponsePDU late = TakeResponseLocked(sequenceNumber);
+                if (late != null) { return late; }
+                throw;
             }
             finally
             {
-                // Clean up the waiting queue entry if still present
-                lock (vWaitingLock)
-                {
-                    vWaitingQueue.Remove(sequenceNumber);
-                }
+                lock (vSyncRoot) { vWaitingQueue.Remove(sequenceNumber); }
             }
-
-            // Fetch the response after waiting
-            resp = FetchResponse(sequenceNumber);
-            if (resp == null)
-            {
-                throw new SmppResponseTimedOutException();
-            }
-            
-            return resp;
         }
 
         public async Task<ResponsePDU> WaitResponseAsync(RequestPDU pdu, int timeOut, CancellationToken cancellationToken = default)
         {
             uint sequenceNumber = pdu.Header.SequenceNumber;
-            
-            // Check if response already exists
-            ResponsePDU resp = FetchResponse(sequenceNumber);
-            if (resp != null) { return resp; }
-            
+
             if (timeOut < sMinTimeout) { timeOut = vDefaultResponseTimeout; }
             int effectiveTimeout = checked(timeOut + SchedulingSlackMs);
-            
+
             var tcs = new TaskCompletionSource<ResponsePDU>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var waitContext = new PDUWaitContextAsync(sequenceNumber, effectiveTimeout, tcs, cancellationToken);
-            
-            // Register waiter first
-            lock (vWaitingLock)
+
+            lock (vSyncRoot)
             {
-                vWaitingQueue[sequenceNumber] = waitContext;
+                ResponsePDU retained = TakeResponse(sequenceNumber);
+                if (retained != null) { return retained; }
+
+                vWaitingQueue[sequenceNumber] =
+                    new PDUWaitContextAsync(sequenceNumber, effectiveTimeout, tcs, cancellationToken);
             }
 
-            // After registration, re-check without holding waiting lock
-            resp = FetchResponse(sequenceNumber);
-            if (resp != null)
-            {
-                // Response already available; clean up and return
-                waitContext.Dispose();
-                lock (vWaitingLock)
-                {
-                    vWaitingQueue.Remove(sequenceNumber);
-                }
-                return resp;
-            }
-            
             try
             {
                 return await tcs.Task.ConfigureAwait(false);
             }
+            catch (SmppResponseTimedOutException)
+            {
+                ResponsePDU late = TakeResponseLocked(sequenceNumber);
+                if (late != null) { return late; }
+                throw;
+            }
             finally
             {
                 // Ensure removal of the waiting entry on completion (success/timeout/cancel)
-                lock (vWaitingLock)
-                {
-                    vWaitingQueue.Remove(sequenceNumber);
-                }
+                lock (vSyncRoot) { vWaitingQueue.Remove(sequenceNumber); }
             }
         }
 
@@ -208,30 +207,61 @@ namespace JamaaTech.Smpp.Net.Lib
         #endregion
 
         #region Helper Methods
-        private void AddResponse(ResponsePDU pdu)
+        /// <summary>
+        /// Retains a response nobody is waiting for yet, so a waiter registering moments
+        /// from now still finds it. Caller must hold <see cref="vSyncRoot"/>.
+        /// </summary>
+        private void RetainResponse(uint sequenceNumber, ResponsePDU pdu)
         {
-            lock (vResponseLock)
+            long now = Stopwatch.GetTimestamp();
+            PruneExpiredResponses(now);
+            vResponseQueue[sequenceNumber] = new RetainedResponse(pdu, now);
+            vRetentionOrder.Enqueue(new RetentionKey(sequenceNumber, now));
+        }
+
+        /// <summary>
+        /// Removes and returns a retained response. Delivery is once-only: leaving it in
+        /// place is what used to grow the queue without bound for the life of the session.
+        /// Caller must hold <see cref="vSyncRoot"/>.
+        /// </summary>
+        private ResponsePDU TakeResponse(uint sequenceNumber)
+        {
+            RetainedResponse retained;
+            if (!vResponseQueue.TryGetValue(sequenceNumber, out retained)) { return null; }
+            vResponseQueue.Remove(sequenceNumber);
+            return retained.Pdu;
+        }
+
+        private ResponsePDU TakeResponseLocked(uint sequenceNumber)
+        {
+            lock (vSyncRoot) { return TakeResponse(sequenceNumber); }
+        }
+
+        /// <summary>
+        /// Drops retained responses that no waiter can still claim. Without this, a peer
+        /// that answers requests their sender has already abandoned would grow the queue
+        /// for as long as the session lives. Caller must hold <see cref="vSyncRoot"/>.
+        /// </summary>
+        private void PruneExpiredResponses(long now)
+        {
+            long maxAge = (long)(vDefaultResponseTimeout * TicksPerMillisecond);
+
+            while (vRetentionOrder.Count > 0)
             {
-                vResponseQueue[pdu.Header.SequenceNumber] = pdu;
+                RetentionKey oldest = vRetentionOrder.Peek();
+                if (now - oldest.Stamp < maxAge) { break; }
+                vRetentionOrder.Dequeue();
+
+                // Only drop the entry this key actually refers to. The sequence number may
+                // have been reused since, and that newer response is not expired yet.
+                RetainedResponse retained;
+                if (vResponseQueue.TryGetValue(oldest.SequenceNumber, out retained)
+                    && retained.Stamp == oldest.Stamp)
+                {
+                    vResponseQueue.Remove(oldest.SequenceNumber);
+                }
             }
         }
-
-        private ResponsePDU FetchResponse(uint sequenceNumber)
-        {
-            lock (vResponseLock)
-            {
-                ResponsePDU pdu;
-                vResponseQueue.TryGetValue(sequenceNumber, out pdu);
-                return pdu;
-            }
-        }
-
-        private void RemoveWaitingQueue(uint sequenceNumber)
-        {
-            // Callers must hold vWaitingLock
-            vWaitingQueue.Remove(sequenceNumber);
-        }
-
         #endregion
         #endregion
     }
