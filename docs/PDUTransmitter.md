@@ -56,6 +56,7 @@ classDiagram
         -TcpIpSession vTcpIpSession
         +PDUTransmitter(TcpIpSession session)
         +Send(PDU pdu)
+        +SendAsync(PDU pdu, CancellationToken ct) Task
     }
     
     class TcpIpSession {
@@ -90,17 +91,21 @@ public PDUTransmitter(TcpIpSession session)
 ### Send Method
 ```csharp
 public void Send(PDU pdu)
+public Task SendAsync(PDU pdu, CancellationToken cancellationToken = default)
 ```
 **Purpose**: Sends a PDU to the SMSC server
 **Parameters**:
 - `pdu`: The PDU object to send
+- `cancellationToken`: Cancels the write; honoured by the underlying `TcpIpSession`
 **Validation**: Throws `ArgumentNullException` if PDU is null
-**Returns**: `void`
+**Returns**: `void`, or a `Task` completing once the bytes have been written
 **Behavior**:
 1. Validates PDU parameter
 2. Serializes PDU to byte array using `pdu.GetBytes()`
 3. Sends byte array via TCP/IP session
 4. Propagates any network errors
+
+Prefer `SendAsync` on the sending path — `Send` occupies its thread for the duration of the write.
 
 ## Data Flow
 

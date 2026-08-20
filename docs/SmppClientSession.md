@@ -20,7 +20,7 @@ The `SmppClientSession` is a core component that manages individual SMPP session
 
 ### Key Responsibilities
 - **Session Binding**: Establishes SMPP sessions with SMSC servers
-- **Component Coordination**: Manages StreamParser, PDUTransmitter, and ResponseHandler
+- **Component Coordination**: Manages StreamParser, PDUTransmitter, and the IResponseHandler
 - **PDU Processing**: Handles incoming request PDUs and outgoing responses
 - **Keep-Alive Management**: Maintains session health with EnquireLink PDUs
 - **Session State Management**: Tracks and manages session states
@@ -41,7 +41,7 @@ graph TB
     subgraph "Core Components"
         SP[StreamParser]
         PT[PDUTransmitter]
-        RH[ResponseHandler]
+        RH[ResponseHandlerV2]
         TCP[TcpIpSession]
     end
     
@@ -79,7 +79,7 @@ classDiagram
     class SmppClientSession {
         -Timer vTimer
         -PDUTransmitter vTrans
-        -ResponseHandler vRespHandler
+        -IResponseHandler vRespHandler
         -StreamParser vStreamParser
         -TcpIpSession vTcpIpSession
         -object vSyncRoot
@@ -97,8 +97,8 @@ classDiagram
         +SessionClosed event
         +SendPdu(RequestPDU pdu)
         +SendPdu(RequestPDU pdu, int timeout)
-        +BeginSendPdu(...)
-        +EndSendPdu(...)
+        +SendPduAsync(RequestPDU pdu)
+        +SendPduAsync(RequestPDU pdu, int timeout, CancellationToken ct)
         +EndSession()
         +Bind(SessionBindInfo, int, SmppEncodingService)
     }
@@ -107,7 +107,7 @@ classDiagram
 ### Core Dependencies
 - **StreamParser**: Parses incoming byte streams into PDUs
 - **PDUTransmitter**: Sends PDUs to the SMSC
-- **ResponseHandler**: Manages response PDU queuing and timeouts
+- **ResponseHandlerV2**: Matches responses to their waiters and enforces timeouts
 - **TcpIpSession**: Provides TCP/IP communication
 - **SmppEncodingService**: Handles character encoding/decoding
 
@@ -203,22 +203,22 @@ public ResponsePDU SendPdu(RequestPDU pdu, int timeout)
 **Behavior**:
 - Validates session state and PDU compatibility
 - Sends PDU via PDUTransmitter
-- Waits for response via ResponseHandler
+- Waits for response via the IResponseHandler
 - Handles timeout scenarios
 
 #### Send PDU (Asynchronous)
 ```csharp
-public IAsyncResult BeginSendPdu(RequestPDU pdu, int timeout, AsyncCallback callback, object @object)
-public IAsyncResult BeginSendPdu(RequestPDU pdu, AsyncCallback callback, object @object)
-public ResponsePDU EndSendPdu(IAsyncResult result)
+public Task<ResponsePDU> SendPduAsync(RequestPDU pdu)
+public Task<ResponsePDU> SendPduAsync(RequestPDU pdu, int timeout, CancellationToken cancellationToken = default)
 ```
-**Purpose**: Sends a request PDU asynchronously
+**Purpose**: Sends a request PDU without blocking the calling thread
 **Parameters**:
 - `pdu`: The request PDU to send
-- `timeout`: Timeout for response
-- `callback`: Callback for completion notification
-- `state`: User state object
-**Returns**: `IAsyncResult` for async operation tracking
+- `timeout`: Response timeout in milliseconds; the parameterless overload uses `DefaultResponseTimeout`
+- `cancellationToken`: Cancels the wait for the response
+**Returns**: A `Task<ResponsePDU>` completing with the SMSC's response
+
+> `BeginSendPdu`/`EndSendPdu` were removed in `2026.1.0`. Use these `Task`-based methods instead.
 
 ### Session Management
 
@@ -275,7 +275,7 @@ sequenceDiagram
 ```mermaid
 flowchart TD
     A[Create TcpIpSession] --> B[Create PDUTransmitter]
-    B --> C[Create ResponseHandler]
+    B --> C[Create IResponseHandler]
     C --> D[Create StreamParser]
     D --> E[Wire Event Handlers]
     E --> F[Start StreamParser]
@@ -303,7 +303,7 @@ sequenceDiagram
 ### Component Creation Order
 1. **TcpIpSession**: Establishes TCP connection
 2. **PDUTransmitter**: Handles PDU transmission
-3. **ResponseHandler**: Manages response queuing
+3. **IResponseHandler**: Created through `ResponseHandlerFactory.Create()`; matches responses to waiters
 4. **StreamParser**: Parses incoming data
 5. **Event Wiring**: Connects component events
 6. **Parser Start**: Begins parsing incoming data
@@ -314,7 +314,7 @@ graph TD
     subgraph "Component Dependencies"
         TCP[TcpIpSession]
         PT[PDUTransmitter]
-        RH[ResponseHandler]
+        RH[ResponseHandlerV2]
         SP[StreamParser]
         ES[SmppEncodingService]
     end
@@ -640,17 +640,19 @@ catch (SmppException ex)
 SubmitSm submitSm = new SubmitSm(encodingService);
 // ... configure PDU ...
 
-IAsyncResult result = session.BeginSendPdu(submitSm, 10000, (ar) => {
-    try
-    {
-        ResponsePDU response = session.EndSendPdu(ar);
-        Console.WriteLine("PDU sent successfully");
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"Send failed: {ex.Message}");
-    }
-}, null);
+try
+{
+    ResponsePDU response = await session.SendPduAsync(submitSm, 10000, cancellationToken);
+    Console.WriteLine("PDU sent successfully");
+}
+catch (SmppResponseTimedOutException)
+{
+    Console.WriteLine("The SMSC did not respond in time");
+}
+catch (SmppException ex)
+{
+    Console.WriteLine($"SMPP Error: {ex.ErrorCode}");
+}
 ```
 
 ### Session Management

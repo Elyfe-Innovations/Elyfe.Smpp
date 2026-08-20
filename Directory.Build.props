@@ -43,7 +43,7 @@
     <PackageProjectUrl>https://github.com/alfkonee/JamaaSMPP</PackageProjectUrl>
     <RepositoryUrl>$(PackageProjectUrl)</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageLicense>MIT</PackageLicense>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
     <PackageIcon>icon.png</PackageIcon>
     <PackageReadmeFile>README.md</PackageReadmeFile>
@@ -69,6 +69,8 @@
   <ItemGroup>
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" />
     <None Include="$(MSBuildThisFileDirectory)icon.png" Pack="true" PackagePath="\" />
+    <!-- The inherited Jamaa Technologies files stay under Ms-RL; ship its text alongside. -->
+    <None Include="$(MSBuildThisFileDirectory)LICENSE.Jamaa-Ms-RL" Pack="true" PackagePath="\" />
   </ItemGroup>
 
   <ItemGroup>

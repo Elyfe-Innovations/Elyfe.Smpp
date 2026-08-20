@@ -1,136 +1,230 @@
 # Elyfe.Smpp
 
-Elyfe SMPP Client is a .NET implementation of the SMPP protocol that focuses on providing an easy-to-use and robust SMPP
-client library for .NET developers. This project is intended to be used by developers who want to integrate SMS
-functionalities in their applications as well as students who are learning the SMPP protocol.
-Based on JamaaSMPP
+[![NuGet](https://img.shields.io/nuget/v/Elyfe.Smpp.svg?logo=nuget)](https://www.nuget.org/packages/Elyfe.Smpp)
+[![Downloads](https://img.shields.io/nuget/dt/Elyfe.Smpp.svg?logo=nuget)](https://www.nuget.org/packages/Elyfe.Smpp)
+[![Build](https://github.com/Elyfe-Innovations/Elyfe.Smpp/actions/workflows/nuget-publish.yml/badge.svg)](https://github.com/Elyfe-Innovations/Elyfe.Smpp/actions/workflows/nuget-publish.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Targets](https://img.shields.io/badge/targets-netstandard2.1%20%7C%20net10.0-512BD4)
 
-## Based On
+A .NET implementation of the **SMPP 3.4** protocol, aimed at developers integrating SMS into their applications and at
+anyone learning the protocol. It handles binding, keep-alives, reconnection, concatenated messages, delivery receipts
+and the encoding rules that SMSCs expect, so you work with messages rather than PDUs.
 
-This is created based on  https://www.nuget.org/packages/JammaSMPP
+```csharp
+var client = new SmppClient(loggerFactory);
+client.Properties.Host = "smsc.example.com";
+client.Properties.Port = 2775;
+client.Properties.SystemId = "systemid";
+client.Properties.Password = "password";
 
-### [Wiki](https://github.com/AdhamAwadhi/JamaaSMPP/wiki)
+client.MessageReceived += (_, e) => Console.WriteLine(e.ShortMessage);
+client.Start();
 
-## [NuGet](https://www.nuget.org/packages/Elyfe.Smpp) ![#](https://img.shields.io/nuget/v/JamaaSMPP.svg)
+await client.SendMessageAsync(new TextMessage
+{
+    SourceAddress = "5750",
+    DestinationAddress = "255700000000",
+    Text = "Hello from Elyfe.Smpp",
+    RegisterDeliveryNotification = true
+});
+```
 
-	Install-Package Elyfe.Smpp
+## Install
 
-## SMPP Server Simulator
+```shell
+dotnet add package Elyfe.Smpp
+```
 
-- Downlad from [http://www.seleniumsoftware.com/downloads.html](http://www.seleniumsoftware.com/downloads.html)
-- Read User Guide [http://www.seleniumsoftware.com/user-guide.htm](http://www.seleniumsoftware.com/user-guide.htm)
+Targets `netstandard2.1` and `net10.0`. Applications on .NET Framework 4.x are **not** supported — see
+[Upgrading](#upgrading).
 
-# What's new?
+## Getting started
 
-### 2023.10.0
+### Configure and start a client
 
-- Improve handling of multiple messageIds in SmppClient
+`SmppClient` owns the connection. Set its `Properties` before calling `Start()`, and it binds, keeps the session alive
+and reconnects on its own.
 
-### v2.0.0
+```csharp
+var client = new SmppClient(loggerFactory);
 
-- **BREAKING: remove NET40 compatibility**
-- Added: SegmentIdGenerator
-- Fixed: `ReceiptedMessageId` submitting
-- Improved: ResponseHandlers
-- Fixed: some Threading issues
-- Fixed: `SubmitSmMultiPart` HasResponse
+SmppConnectionProperties properties = client.Properties;
+properties.Host = "smsc.example.com";
+properties.Port = 2775;
+properties.SystemId = "systemid";
+properties.Password = "password";
+properties.SystemType = "";
+properties.DefaultServiceType = "5750";
+properties.DefaultEncoding = DataCoding.UCS2;
+properties.AddressTon = TypeOfNumber.International;
+properties.AddressNpi = NumberingPlanIndicator.ISDN;
 
-### v1.11.0
+// Resume a lost connection after 30 seconds
+client.AutoReconnectDelay = 30000;
+// Send an EnquireLink PDU every 15 seconds
+client.KeepAliveInterval = 15000;
 
-- Added MultiPartTextMessage
+client.Start();
+```
 
-### v1.10.0
+`Start()` returns immediately and connects in the background. Use `ForceConnect(timeout)` when you need the bind to have
+completed before the call returns.
 
-- Improve SmppClient to respect AddressNPI and AddressTON for Source Addresses
-- (fix) Fallback Source to Config Value
-- Bump .Net Versions
+### Handle events
 
-### v1.9.1
+```csharp
+client.MessageReceived    += (_, e) => { /* an MO message arrived */ };
+client.MessageDelivered   += (_, e) => { /* a delivery receipt arrived */ };
+client.MessageSent        += (_, e) => { /* the SMSC accepted a submission */ };
+client.ConnectionStateChanged += (_, e) => { /* Closed / Connecting / Connected */ };
+```
 
-- Modified: allow some methods to be overridden in `SmppClient`
+### Send messages
 
-### v1.9.0
+`SendMessageAsync` is the primary API. The synchronous `SendMessage` overloads block the calling thread until the SMSC
+responds and are kept for compatibility.
 
-- Fixed: `CommandType.AlertNotification` to be `0x00000103`
+```csharp
+try
+{
+    await client.SendMessageAsync(message, timeout: 30000, cancellationToken);
+}
+catch (SmppException ex)
+{
+    // ex.ErrorCode carries the SMPP status returned by the SMSC
+}
+```
 
-- Fixed: .Net Core Issues #37
+Text longer than one segment is split automatically and concatenated with a UDH header — the segment id comes from
+`SegmentIdGeneratorFactory.Generator`. `MultiPartTextMessage` splits identically but waits for a single
+`submit_sm_resp` covering the whole message rather than one per segment.
 
-### v1.8.2
+### Correlate submissions with receipts
 
-- Moved to dotnet core
+Set `UserMessageReference` on a message and read it back on the `MessageSent` and `MessageDelivered` events:
 
-- Added: `ShortMessage.MessageState`
+```csharp
+msg.UserMessageReference = Guid.NewGuid().ToString();
+```
 
-- Added: `ShortMessage.NetworkErrorCode`
+To use the reference only inside your application without submitting it to the SMSC, set
+`ShortMessage.SubmitUserMessageReference` to `false`.
 
-- Added: `ShortMessage.SubmitUserMessageReference` property
+### Customise the outgoing PDU
 
-  > In case you want to use `UserMessageReference` in your app **ONLY**, and not submit to SMSC.
-  > Like `SmppClient.MessageSent` event.
+Override `CreateSubmitSm()` to reach fields the message model does not expose:
 
-### v1.7.5
+```csharp
+class MyTextMessage : TextMessage
+{
+    protected override SubmitSm CreateSubmitSm(
+        SmppEncodingService encodingService, SmppAddress destAddress = null, SmppAddress srcAddress = null)
+    {
+        var sm = base.CreateSubmitSm(encodingService, destAddress, srcAddress);
+        sm.SourceAddress.Ton = TypeOfNumber.Alphanumeric;
+        return sm;
+    }
+}
+```
 
-- Added `SmppConnectionProperties.UseSeparateConnections`
+`RequestPDU` and `ResponsePDU` are also reachable directly through `SendPduAsync` when you need a command the client
+does not wrap.
 
-  > **When `null`**: Depends on `SmppConnectionProperties.InterfaceVersion`, if `InterfaceVersion.v33` will be `true`,
-  otherwise `false.`
-  > **When `true`**: Use two sessions for Receiver (`CommandType.BindReceiver`) and
-  Transmitter (`CommandType.BindTransmitter`)
-  > **When `false`**: Use one session for Receiver and Transmitter in mode `CommandType.BindTransceiver`
+## Logging
 
-### v1.7.4
+The library logs through `Microsoft.Extensions.Logging` and depends on the abstractions package only — you choose the
+sink. Pass an `ILoggerFactory` to the constructor, and register one with `SmppLog` to capture diagnostics from the
+protocol layer as well:
 
-- Support sending concatenated messages
-- ~~Fix Unicode Languages [issue #2](https://github.com/AdhamAwadhi/JamaaSMPP/issues/2). Allow user to set UCS2 encoding
-  in SMPPEncodingUtil~~
-  SEE [here](https://github.com/AdhamAwadhi/JamaaSMPP/wiki/Smpp-Encoding)
+```csharp
+using var loggerFactory = LoggerFactory.Create(b => b.AddSimpleConsole().SetMinimumLevel(LogLevel.Debug));
 
-- Add `TextMessage` virtual method `CreateSubmitSm()` to allow user to change some properties (like Source address ton)
+SmppLog.SetLoggerFactory(loggerFactory);   // JamaaTech.Smpp.Net.Lib.Logging
+var client = new SmppClient(loggerFactory);
+```
 
-        class MyTextMessage : TextMessage
-        {
-            protected override SubmitSm CreateSubmitSm()
-            {
-                var sm = base.CreateSubmitSm();
-                sm.SourceAddress.Ton = JamaaTech.Smpp.Net.Lib.TypeOfNumber.Aphanumeric;
-                return sm;
-            }
-        }
+## Encoding
 
-- Add Message `UserMessageReference`, you can now use it on `MessageSent` event
+SMPP data coding is the usual source of surprises. Two knobs cover most cases.
 
-        // set user message reference
-        msg.UserMessageReference = Guid.NewGuid().ToString();
+**Per-client encoding** — the default is `Encoding.BigEndianUnicode`:
 
-  on MessageSent event
+```csharp
+client.SmppEncodingService = new SmppEncodingService(Encoding.UTF8);
+```
 
-        Console.WriteLine("Message Id {0} Sent to: {1}", e.ShortMessage.UserMessageReference, e.ShortMessage.DestinationAddress);
+**SMSC default alphabet** — `SMSCDefaultEncoding` (in `JamaaTech.Smpp.Net.Lib.Util`) implements the GSM 03.38 alphabet
+by default. Set `UseGsmEncoding` to `false` for the simpler original Jamaa mapping, which omits the Greek characters:
 
-- Use custom encoding for each `SmppClient` instance
+```csharp
+SMSCDefaultEncoding.UseGsmEncoding = false;
+```
 
-> Default encdoing `System.Text.Encoding.BigEndianUnicode`
+See the [encoding notes](https://github.com/AdhamAwadhi/JamaaSMPP/wiki/Smpp-Encoding) for background.
 
-        client.SmppEncodingService = new SmppEncodingService(System.Text.Encoding.UTF8);
+## Separate transmit and receive sessions
 
-- Fix `SMSCDefaultEncoding` exception [issue #4](https://github.com/AdhamAwadhi/JamaaSMPP/issues/4). There are 2 options
-  here:
-    - GSM Encoding (***Default***) : Use GSM 03.38 alphabet [Wikipedia](https://en.wikipedia.org/wiki/GSM_03.38). (Code
-      from [https://github.com/mediaburst/.NET-GSM-Encoding/blob/master/GSMEncoding.cs](https://github.com/mediaburst/.NET-GSM-Encoding/blob/master/GSMEncoding.cs))
-    - JamaaSMPP version : Simple version of GSM 03.38 without **Greeks alphapet**
+`SmppConnectionProperties.UseSeparateConnections` chooses the bind strategy:
 
-  > You can choose between them by setting `UseGsmEncoding` property to `true` (*defualt*) to use  **GSM Encoding** or
-  ti `false` to use the other.
+| Value | Behaviour |
+| --- | --- |
+| `null` (default) | `true` for `InterfaceVersion.v33`, otherwise `false` |
+| `true` | Two sessions — `BindReceiver` and `BindTransmitter` |
+| `false` | One session — `BindTransceiver` |
 
-        JamaaTech.Smpp.Net.Lib.Util.SMSCDefaultEncoding.UseGsmEncoding = true; // or false
+## Testing against a simulator
 
-- Use [Common.Logging](https://github.com/net-commons/common-logging) for logging purpose
-- PDU TLV collection methods
-    + `string GetOptionalParamString(Tag tag)`
-    + `byte[] GetOptionalParamBytes(Tag tag)`
-    + `byte? GetOptionalParamByte(Tag tag)`
-    + `T? GetOptionalParamByte<T>(Tag tag) where T : struct`
-    + `void SetOptionalParamString(Tag tag, string val, bool nullTerminated = false)`
-    + `void SetOptionalParamByte<T>(Tag tag, T? val) where T : struct`
-    + `void SetOptionalParamBytes(Tag tag, byte[] val)`
-    + `void RemoveOptionalParameter(Tag tag)`
+[SMPPSim](http://www.seleniumsoftware.com/downloads.html) is a convenient local SMSC — see its
+[user guide](http://www.seleniumsoftware.com/user-guide.htm). The `DemoClient` project in this repository is a working
+console client you can point at it.
 
+## Repository layout
+
+| Path | Contents |
+| --- | --- |
+| `JamaaTech.Smpp.Net.Lib` | Protocol layer: PDUs, TLVs, sessions, encoding |
+| `JamaaTech.Smpp.Net.Client` | `SmppClient` and the message model |
+| `Client` | `ISmscClient` and `AddSmscClient()` DI wiring — in-repo, not part of the package |
+| `Tests`, `Client.Tests` | xUnit test suites |
+| `DemoClient` | Sample console client |
+| `Benchmarks` | BenchmarkDotNet suite |
+| `docs` | Architecture and component notes |
+
+`JamaaTech.Smpp.Net.Lib` and `JamaaTech.Smpp.Net.Client` ship together inside the single `Elyfe.Smpp` package; the
+other projects are development-only.
+
+## Upgrading
+
+`2026.1.0` is a breaking release for anyone coming from `2026.0.x`:
+
+- **Dropped `net48` and `netstandard2.0`.** The package now targets `netstandard2.1` and `net10.0`.
+- **Removed the bundled Common.Logging shim.** Logging goes through `Microsoft.Extensions.Logging` only.
+- **Removed the APM methods** `BeginSendPdu`/`EndSendPdu` and `BeginSendMessage`/`EndSendMessage`. Use `SendPduAsync`
+  and `SendMessageAsync`.
+
+It also fixes a response-queue leak that grew for the lifetime of a session, a race that could leave a caller blocked
+until its timeout, and `TcpIpSession` ignoring the `CancellationToken` it accepted.
+
+Full history: [Releases](https://github.com/Elyfe-Innovations/Elyfe.Smpp/releases).
+
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Architecture overview](docs/Architecture_Overview.md)
+- [`SmppClient`](docs/SmppClient.md) · [`SmppClientSession`](docs/SmppClientSession.md) ·
+  [`ShortMessage`](docs/ShortMessage.md)
+- [`PDUTransmitter`](docs/PDUTransmitter.md) · [`StreamParser`](docs/StreamParser.md) ·
+  [`SmppEncodingService`](docs/SmppEncodingService.md)
+- Upstream [JamaaSMPP wiki](https://github.com/AdhamAwadhi/JamaaSMPP/wiki)
+
+## Credits
+
+Elyfe.Smpp continues [JamaaSMPP](https://github.com/AdhamAwadhi/JamaaSMPP) by Adham Awadhi, itself built on the Jamaa
+SMPP Library by Jamaa Technologies (Benedict J. Tesha).
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+Files carrying a Jamaa Technologies copyright header remain under the Microsoft Reciprocal License, retained in
+[LICENSE.Jamaa-Ms-RL](LICENSE.Jamaa-Ms-RL).
