@@ -77,18 +77,27 @@ public static class SMSCDefaultEncoding
   public static string GetString(byte[] bytes)
   {
     if (bytes == null) throw new ArgumentNullException(nameof(bytes));
-    // Use Gsm Encoding
-    if (UseGsmEncoding) return gsm.GetString(bytes);
+    return GetString(bytes, 0, bytes.Length);
+  }
 
-    var builder = new StringBuilder(bytes.Length);
-    for (var index = 0; index < bytes.Length; ++index)
+  public static string GetString(byte[] bytes, int offset, int count)
+  {
+    if (bytes == null) throw new ArgumentNullException(nameof(bytes));
+    if (offset < 0 || offset > bytes.Length) throw new ArgumentOutOfRangeException(nameof(offset));
+    if (count < 0 || count > bytes.Length - offset) throw new ArgumentOutOfRangeException(nameof(count));
+    // Use Gsm Encoding
+    if (UseGsmEncoding) return gsm.GetString(bytes, offset, count);
+
+    var builder = new StringBuilder(count);
+    var end = offset + count;
+    for (var index = offset; index < end; ++index)
     {
       var @byte = bytes[index];
       if (@byte > 127) continue; //This is outside range
 
       if (@byte == 0x1b) //This might be an escape sequence
         //Check if there is any charactor next to this
-        if (index + 1 < bytes.Length)
+        if (index + 1 < end)
         {
           var @extChar = GetExtendedChar(bytes[index + 1]);
           if (@extChar != '\0') //This charactor was escaped by the sequence 0x1b

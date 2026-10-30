@@ -76,22 +76,29 @@ namespace JamaaTech.Smpp.Net.Client
                 sm.RegisteredDelivery = RegisteredDelivery.DeliveryReceipt;
 
             vMaxMessageLength = GetMaxMessageLength(defaultEncoding, false);
+            var byteBudget = defaultEncoding == DataCoding.UCS2 ? vMaxMessageLength * 2 : vMaxMessageLength;
             byte[] bytes = smppEncodingService.GetBytesFromString(vText, defaultEncoding);
 
-            // Unicode encoding return 2 items for 1 char 
-            // We check vText Length first
-            if (vText.Length > vMaxMessageLength && bytes.Length > vMaxMessageLength) // Split into multiple!
+            // SMSCDefault bytes are unpacked septets, including GSM extension escapes.
+            // UCS2 limits are bytes as well, rather than UTF-16 character counts.
+            if (bytes.Length > byteBudget)
             {
                 var SegID = SegmentIdGeneratorFactory.Generator.NextSegmentId(vSourceAddress, vDestinatinoAddress);
                 vMaxMessageLength = GetMaxMessageLength(defaultEncoding, true);
-                var messages = Split(vText, vMaxMessageLength);
+                byteBudget = defaultEncoding == DataCoding.UCS2 ? vMaxMessageLength * 2 : vMaxMessageLength;
+                var messages = Split(bytes, byteBudget, defaultEncoding, smppEncodingService);
                 var totalSegments = messages.Count; // get the number of (how many) parts
                 var udh = new Udh(SegID, totalSegments, 0); // ID, Total, part
 
+                var offset = 0;
                 for (int i = 0; i < totalSegments; i++)
                 {
                     udh.MessageSequence = i + 1;  // seq+1 , - parts of the message      
-                    sm.SetMessageText(messages[i], defaultEncoding, udh); // send parts of the message + all other UDH settings
+                    var page = smppEncodingService.GetStringFromBytes(bytes, offset, messages[i], defaultEncoding);
+                    offset += messages[i];
+                    // Keep the virtual hook: multipart SubmitSm implementations use
+                    // it to select the last page as the response-bearing PDU.
+                    sm.SetMessageText(page, defaultEncoding, udh);
                     yield return sm;
                 }
             }
@@ -109,20 +116,57 @@ namespace JamaaTech.Smpp.Net.Client
             return sm;
         }
 
-        private static List<String> Split(string message, int maxPartLength)
+        private static List<int> Split(byte[] message, int maxPartLength, DataCoding encoding, SmppEncodingService encodingService)
         {
-            var result = new List<String>();
+            var result = new List<int>();
+            var littleEndian = encodingService.UCS2Encoding.CodePage == 1200;
+            var utf16 = encodingService.UCS2Encoding.CodePage == 1200 ||
+                encodingService.UCS2Encoding.CodePage == 1201;
+            var decoder = encoding == DataCoding.UCS2 && !utf16
+                ? encodingService.UCS2Encoding.GetDecoder() : null;
+            var characters = decoder == null ? null :
+                new char[encodingService.UCS2Encoding.GetMaxCharCount(1)];
 
-            for (int i = 0; i < message.Length; i += maxPartLength)
+            for (int offset = 0; offset < message.Length;)
             {
-                var chunkSize = i + maxPartLength < message.Length ? maxPartLength : message.Length - i;
-                var chunk = new char[chunkSize];
-                message.CopyTo(i, chunk, 0, chunkSize);
-                result.Add(new string(chunk));
+                var length = Math.Min(maxPartLength, message.Length - offset);
+                if (offset + length < message.Length)
+                {
+                    if (encoding == DataCoding.SMSCDefault && message[offset + length - 1] == 0x1B)
+                        length--;
+                    else if (encoding == DataCoding.UCS2 && utf16)
+                    {
+                        // A supplementary character must remain on one page, for either
+                        // configured UTF-16 byte order.
+                        var end = offset + length;
+                        var lastCodeUnit = littleEndian
+                            ? message[end - 2] | (message[end - 1] << 8)
+                            : (message[end - 2] << 8) | message[end - 1];
+                        if (lastCodeUnit >= 0xD800 && lastCodeUnit <= 0xDBFF)
+                            length -= 2;
+                    }
+                    else if (decoder != null)
+                    {
+                        // A decoder can consume an incomplete trailing character without
+                        // emitting it. Only an emitted complete character marks a boundary.
+                        decoder.Reset();
+                        var boundary = 0;
+                        for (var i = 0; i < length; i++)
+                        {
+                            var count = decoder.GetChars(message, offset + i, 1, characters, 0, false);
+                            if (count > 0 && !char.IsHighSurrogate(characters[count - 1]))
+                                boundary = i + 1;
+                        }
+                        if (boundary == 0)
+                            throw new InvalidOperationException("A character exceeds the text message page budget");
+                        length = boundary;
+                    }
+                }
+                result.Add(length);
+                offset += length;
             }
 
             return result;
-
         }
 
         private static int GetMaxMessageLength(DataCoding encoding, bool includeUdh)

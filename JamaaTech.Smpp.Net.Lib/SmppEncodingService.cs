@@ -177,28 +177,33 @@ public class SmppEncodingService
   public virtual string GetStringFromBytes(byte[] data, DataCoding dataCoding)
   {
     if (data == null) throw new ArgumentNullException(nameof(data));
+    return GetStringFromBytes(data, 0, data.Length, dataCoding).Replace("\u0000", "");
+  }
+
+  /// <summary>Decodes a message-body range without removing embedded NUL characters.</summary>
+  public virtual string GetStringFromBytes(byte[] data, int offset, int count, DataCoding dataCoding)
+  {
+    if (data == null) throw new ArgumentNullException(nameof(data));
     string result = null;
     switch (dataCoding)
     {
       case DataCoding.ASCII:
-        result = System.Text.Encoding.ASCII.GetString(data);
+        result = System.Text.Encoding.ASCII.GetString(data, offset, count);
         break;
       case DataCoding.Latin1:
-        result = Latin1Encoding.GetString(data);
+        result = Latin1Encoding.GetString(data, offset, count);
         break;
       case DataCoding.SMSCDefault:
-        result = SMSCDefaultEncoding.GetString(data);
+        result = SMSCDefaultEncoding.GetString(data, offset, count);
         break;
       case DataCoding.UCS2:
-        result = UCS2Encoding.GetString(data);
+        result = UCS2Encoding.GetString(data, offset, count);
         break;
       default:
         throw new SmppException(SmppErrorCode.ESME_RUNKNOWNERR, "Unsupported encoding");
     }
 
-    //Since a CString may contain a null terminating charactor
-    //Replace all occurences of null charactors
-    return result.Replace("\u0000", "");
+    return result;
   }
 
   #endregion

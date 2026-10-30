@@ -36,5 +36,10 @@ public static class Latin1Encoding
     return vEncoding.GetString(bytes);
   }
 
+  public static string GetString(byte[] bytes, int offset, int count)
+  {
+    return vEncoding.GetString(bytes, offset, count);
+  }
+
   #endregion
 }

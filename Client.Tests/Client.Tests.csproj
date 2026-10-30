@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Client\Client.csproj" />
+    <ProjectReference Include="..\JamaaTech.Smpp.Net.Client\Smpp.Net.Client.csproj" />
   </ItemGroup>
 
 </Project>

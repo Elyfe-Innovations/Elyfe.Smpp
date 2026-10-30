@@ -99,6 +99,20 @@ Text longer than one segment is split automatically and concatenated with a UDH 
 `SegmentIdGeneratorFactory.Generator`. `MultiPartTextMessage` splits identically but waits for a single
 `submit_sm_resp` covering the whole message rather than one per segment.
 
+Segmentation uses the configured encoded payload, not visible character count.
+GSM extension characters consume two septets; GSM pages allow 160 septets singly
+or 153 with concatenation. Standard UTF-16/UCS2 uses 70 code units singly or 67
+with concatenation, without splitting surrogate pairs. Configured alternative
+Unicode encodings also preserve character boundaries. `MaxMessageLength` retains
+its existing 70/67 character values for UCS2.
+
+The existing virtual `SubmitSm.SetMessageText` path is preserved for every page,
+including the multipart response-selection override. Lossless ranged body decoding
+preserves embedded NUL bytes; the older whole-array decoding helper retains its
+original NUL-trimming behavior.
+GSM ranged encoding and decoding honor the requested input range and destination
+offset; an escape at the end of a decoded range never consumes the following byte.
+
 ### Correlate submissions with receipts
 
 Set `UserMessageReference` on a message and read it back on the `MessageSent` and `MessageDelivered` events:
