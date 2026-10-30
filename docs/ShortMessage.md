@@ -227,14 +227,26 @@ sequenceDiagram
 ### Single Message Processing
 ```mermaid
 flowchart TD
-    A[TextMessage] --> B{Text Length}
-    B -->|<= 160| C[Single PDU]
-    B -->|> 160| D[Auto-Split]
+    A[TextMessage] --> B{Encoded bytes fit single-page budget?}
+    B -->|Yes| C[Single PDU]
+    B -->|No| D[Auto-Split]
     D --> E[Generate UDH]
     E --> F[Create Multiple PDUs]
     C --> G[SubmitSm PDU]
     F --> H[SubmitSm PDUs with UDH]
 ```
+
+Page limits are measured in encoded bytes: GSM default uses 160/153 unpacked
+septets (extension characters use two), ASCII uses 160/153 bytes, Latin-1 uses
+140/134 bytes, and UCS2 uses 140/134 bytes, without/with the concatenation UDH.
+UTF-16 surrogate pairs and GSM escape sequences remain on one page.
+
+For a configured non-UTF-16 `UCS2Encoding`, splitting partitions the source text
+and independently encodes each page. A bounded encoder conversion selects a
+candidate; an independent flushed byte count includes any final shift-state
+bytes before the page is emitted. No decoder state or encoder state is shared
+between pages. This also preserves stateful configured encodings, though it
+does not imply that an SMSC supports those encodings under the UCS2 data coding.
 
 ### Multi-Part Message Processing
 ```mermaid

@@ -77,16 +77,24 @@ namespace JamaaTech.Smpp.Net.Client
 
             vMaxMessageLength = GetMaxMessageLength(defaultEncoding, false);
             var byteBudget = defaultEncoding == DataCoding.UCS2 ? vMaxMessageLength * 2 : vMaxMessageLength;
-            byte[] bytes = smppEncodingService.GetBytesFromString(vText, defaultEncoding);
+            var sourcePages = defaultEncoding == DataCoding.UCS2 &&
+                smppEncodingService.UCS2Encoding.CodePage != 1200 &&
+                smppEncodingService.UCS2Encoding.CodePage != 1201;
+            byte[] bytes = sourcePages ? null : smppEncodingService.GetBytesFromString(vText, defaultEncoding);
+            var encodedLength = sourcePages
+                ? smppEncodingService.UCS2Encoding.GetByteCount(vText)
+                : bytes.Length;
 
             // SMSCDefault bytes are unpacked septets, including GSM extension escapes.
             // UCS2 limits are bytes as well, rather than UTF-16 character counts.
-            if (bytes.Length > byteBudget)
+            if (encodedLength > byteBudget)
             {
                 var SegID = SegmentIdGeneratorFactory.Generator.NextSegmentId(vSourceAddress, vDestinatinoAddress);
                 vMaxMessageLength = GetMaxMessageLength(defaultEncoding, true);
                 byteBudget = defaultEncoding == DataCoding.UCS2 ? vMaxMessageLength * 2 : vMaxMessageLength;
-                var messages = Split(bytes, byteBudget, defaultEncoding, smppEncodingService);
+                var messages = sourcePages
+                    ? SplitText(vText, byteBudget, smppEncodingService.UCS2Encoding)
+                    : Split(bytes, byteBudget, defaultEncoding, smppEncodingService);
                 var totalSegments = messages.Count; // get the number of (how many) parts
                 var udh = new Udh(SegID, totalSegments, 0); // ID, Total, part
 
@@ -94,7 +102,9 @@ namespace JamaaTech.Smpp.Net.Client
                 for (int i = 0; i < totalSegments; i++)
                 {
                     udh.MessageSequence = i + 1;  // seq+1 , - parts of the message      
-                    var page = smppEncodingService.GetStringFromBytes(bytes, offset, messages[i], defaultEncoding);
+                    var page = sourcePages
+                        ? vText.Substring(offset, messages[i])
+                        : smppEncodingService.GetStringFromBytes(bytes, offset, messages[i], defaultEncoding);
                     offset += messages[i];
                     // Keep the virtual hook: multipart SubmitSm implementations use
                     // it to select the last page as the response-bearing PDU.
@@ -122,10 +132,6 @@ namespace JamaaTech.Smpp.Net.Client
             var littleEndian = encodingService.UCS2Encoding.CodePage == 1200;
             var utf16 = encodingService.UCS2Encoding.CodePage == 1200 ||
                 encodingService.UCS2Encoding.CodePage == 1201;
-            var decoder = encoding == DataCoding.UCS2 && !utf16
-                ? encodingService.UCS2Encoding.GetDecoder() : null;
-            var characters = decoder == null ? null :
-                new char[encodingService.UCS2Encoding.GetMaxCharCount(1)];
 
             for (int offset = 0; offset < message.Length;)
             {
@@ -145,28 +151,50 @@ namespace JamaaTech.Smpp.Net.Client
                         if (lastCodeUnit >= 0xD800 && lastCodeUnit <= 0xDBFF)
                             length -= 2;
                     }
-                    else if (decoder != null)
-                    {
-                        // A decoder can consume an incomplete trailing character without
-                        // emitting it. Only an emitted complete character marks a boundary.
-                        decoder.Reset();
-                        var boundary = 0;
-                        for (var i = 0; i < length; i++)
-                        {
-                            var count = decoder.GetChars(message, offset + i, 1, characters, 0, false);
-                            if (count > 0 && !char.IsHighSurrogate(characters[count - 1]))
-                                boundary = i + 1;
-                        }
-                        if (boundary == 0)
-                            throw new InvalidOperationException("A character exceeds the text message page budget");
-                        length = boundary;
-                    }
                 }
                 result.Add(length);
                 offset += length;
             }
 
             return result;
+        }
+
+        private static List<int> SplitText(string message, int maxPartLength, System.Text.Encoding encoding)
+        {
+            var result = new List<int>();
+            var encoder = encoding.GetEncoder();
+            var scratch = new byte[maxPartLength];
+            for (var offset = 0; offset < message.Length;)
+            {
+                // Convert bounds the candidate without repeatedly encoding the entire
+                // remaining text. Its state is never carried into the next page.
+                encoder.Reset();
+                encoder.Convert(message.AsSpan(offset), scratch.AsSpan(), true,
+                    out var length, out _, out _);
+                length = CompleteCharacters(message, offset, length);
+
+                // Convert can consume text while retaining shift/fallback state when
+                // its output buffer fills. Each PDU must also fit when independently
+                // encoded and flushed, including any final state-termination bytes.
+                while (length > 0 &&
+                    encoding.GetByteCount(message.AsSpan(offset, length)) > maxPartLength)
+                    length = CompleteCharacters(message, offset, length - 1);
+
+                if (length == 0)
+                    throw new InvalidOperationException("A character exceeds the text message page budget");
+                result.Add(length);
+                offset += length;
+            }
+            return result;
+        }
+
+        private static int CompleteCharacters(string message, int offset, int length)
+        {
+            if (length > 0 && offset + length < message.Length &&
+                char.IsHighSurrogate(message[offset + length - 1]) &&
+                char.IsLowSurrogate(message[offset + length]))
+                length--;
+            return length;
         }
 
         private static int GetMaxMessageLength(DataCoding encoding, bool includeUdh)

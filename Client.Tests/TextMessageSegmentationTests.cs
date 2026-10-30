@@ -61,6 +61,21 @@ public class TextMessageSegmentationTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GetPDUs_PreservesConfiguredUtf7IndependentPageState(bool supplementaryBoundary)
+    {
+        // Exercise a stateful encoding, not a recommendation to use UTF-7 on SMS.
+#pragma warning disable SYSLIB0001
+        var encoding = Encoding.UTF7;
+#pragma warning restore SYSLIB0001
+        var text = supplementaryBoundary
+            ? new string('漢', 48) + "😀+ASCII" + new string('漢', 48)
+            : new string('漢', 100);
+        AssertWirePages(text, DataCoding.UCS2, new SmppEncodingService(encoding), 3, 140, 134);
+    }
+
+    [Theory]
     [InlineData(80, 1)]
     [InlineData(81, 2)]
     [InlineData(160, 3)]
@@ -205,6 +220,9 @@ public class TextMessageSegmentationTests
                 Assert.Equal(0, payload.Length % 2);
             var pageText = service.GetStringFromBytes(payload, coding);
             Assert.DoesNotContain("\uFFFD", pageText);
+            Assert.False(pageText.Length > 0 && char.IsHighSurrogate(pageText[^1]));
+            Assert.False(pageText.Length > 0 && char.IsLowSurrogate(pageText[0]));
+            Assert.Equal(payload, service.GetBytesFromString(pageText, coding));
             decoded.Append(pageText);
             if (hasUdh)
             {
