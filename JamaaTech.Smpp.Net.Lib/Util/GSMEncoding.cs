@@ -24,7 +24,7 @@ public class GSMEncoding : System.Text.Encoding
     if (index < 0 || index > chars.Length) throw new ArgumentOutOfRangeException("index");
     if (count < 0 || count > chars.Length - index) throw new ArgumentOutOfRangeException("count");
 
-    for (var i = index; i < count; i++)
+    for (var i = index; i < index + count; i++)
       if (_charToByte.ContainsKey(chars[i]))
         byteCount += _charToByte[chars[i]].Length;
 
@@ -72,7 +72,7 @@ public class GSMEncoding : System.Text.Encoding
         if (bytes[i] == 0x1B)
         {
           i++;
-          if (i < bytes.Length && bytes[i] <= 0x7F) charCount++; // GSM Spec says replace 1B 1B with space
+          if (i < index + count && bytes[i] <= 0x7F) charCount++; // GSM Spec says replace 1B 1B with space
         }
         else
         {
@@ -108,26 +108,26 @@ public class GSMEncoding : System.Text.Encoding
         if (bytes[i] == 0x1B)
         {
           i++;
-          if (i < bytes.Length && bytes[i] <= 0x7F)
+          if (i < byteIndex + byteCount && bytes[i] <= 0x7F)
           {
             char nextChar;
             var extendedChar = 0x1B * 255 + (uint)bytes[i];
             if (_byteToChar.TryGetValue(extendedChar, out nextChar))
             {
-              chars[charCount] = nextChar;
+              chars[charIndex + charCount] = nextChar;
               charCount++;
             }
             // GSM Spec says to try for normal character if escaped one doesn't exist
             else if (_byteToChar.TryGetValue((uint)bytes[i], out nextChar))
             {
-              chars[charCount] = nextChar;
+              chars[charIndex + charCount] = nextChar;
               charCount++;
             }
           }
         }
         else
         {
-          chars[charCount] = _byteToChar[(uint)bytes[i]];
+          chars[charIndex + charCount] = _byteToChar[(uint)bytes[i]];
           charCount++;
         }
       }
